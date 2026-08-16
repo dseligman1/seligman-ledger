@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>The Seligman Ledger</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== GATE: connect to GitHub ===== -->
+<div class="gate-wrap" id="gate-connect">
+  <div class="gate-card">
+    <div class="gate-brand">The <em>Seligman</em> Ledger</div>
+    <div class="gate-sub">First time on this device — connect it to your data. You'll need the fine-grained GitHub token for this repo (see the README for how to create one).</div>
+    <div class="gate-field">
+      <label for="pat-input">GitHub token</label>
+      <input type="password" id="pat-input" placeholder="github_pat_...">
+    </div>
+    <button class="solid-btn" id="pat-save-btn" style="width:100%;">Connect</button>
+    <div class="gate-error" id="pat-error"></div>
+    <div class="gate-hint">Stored only in this browser's local storage — never leaves this device except to talk to GitHub directly.</div>
+  </div>
+</div>
+
+<!-- ===== GATE: PIN ===== -->
+<div class="gate-wrap" id="gate-pin" style="display:none;">
+  <div class="gate-card">
+    <div class="gate-brand">The <em>Seligman</em> Ledger</div>
+    <div class="gate-sub" id="pin-sub">Enter your PIN to unlock.</div>
+    <div class="gate-field">
+      <label for="pin-input">PIN</label>
+      <input type="password" inputmode="numeric" id="pin-input" placeholder="••••••">
+    </div>
+    <button class="solid-btn" id="pin-unlock-btn" style="width:100%;">Unlock</button>
+    <div class="gate-error" id="pin-error"></div>
+    <div id="first-run-choice" style="display:none;">
+      <div class="gate-sub" style="margin-top:16px; margin-bottom:6px;">No data found yet in this repo. This PIN will become your new lock — remember it, it can't be recovered. How do you want to start?</div>
+      <div class="gate-choice">
+        <button class="ghost-btn" id="start-empty-btn">Start empty</button>
+        <button class="ghost-btn" id="start-import-btn">Import a file</button>
+      </div>
+      <input type="file" id="import-file-input" accept="application/json" style="display:none;">
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div class="app" id="app-root" style="display:none;">
+  <header class="top">
+    <div class="brand-row">
+      <div class="brand">The <em>Seligman</em> Ledger</div>
+      <div class="asof"><span class="sync-dot" id="sync-dot"></span><span id="sync-label">—</span></div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
+      <button data-tab="accounts" role="tab" aria-selected="false">Accounts</button>
+      <button data-tab="assumptions" role="tab" aria-selected="false">Assumptions</button>
+      <button data-tab="future" role="tab" aria-selected="false">Coming Up</button>
+      <button data-tab="house" role="tab" aria-selected="false">House Project</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- DASHBOARD -->
+    <section class="panel active" id="panel-dashboard">
+      <div class="hero-grid">
+        <button class="stat-tile clickable" id="tile-networth">
+          <div class="label">Net worth</div>
+          <div class="value" id="nw-value">—</div>
+          <div class="delta" id="nw-delta">—</div>
+        </button>
+        <div class="stat-tile">
+          <div class="label">Net spend this month</div>
+          <div class="value" id="spend-value">—</div>
+          <div class="delta" id="spend-delta">—</div>
+          <div class="stat-caption">Calculated: income − change in liquid balances</div>
+        </div>
+        <button class="stat-tile clickable full-tile" id="tile-controllable">
+          <div class="label">Controllable movement (ex. HL / Morgan Stanley / Nutmeg)</div>
+          <div class="value" id="controllable-value">—</div>
+          <div class="stat-caption" id="controllable-caption">Strips out market-driven swings so you can see what your own spending actually did</div>
+        </button>
+        <div class="stat-tile full-tile" id="status-chip-tile">
+          <span class="chip good" id="status-chip"><span class="dot"></span> —</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>This month's story</h2>
+        <p class="narrative" id="narrative-text">—</p>
+      </div>
+
+      <div class="card">
+        <div class="field-row" style="justify-content:space-between;">
+          <h2 style="margin:0;">One-off events</h2>
+          <button class="ghost-btn" id="add-oneoff-btn">+ Add</button>
+        </div>
+        <div class="sub">Big one-off spends or windfalls already paid/received — logged here so the commentary above accounts for them instead of looking like ordinary spend.</div>
+        <div id="add-oneoff-form" class="add-row" style="display:none;">
+          <input type="date" id="new-oneoff-date">
+          <input type="text" id="new-oneoff-desc" placeholder="Description">
+          <input type="number" id="new-oneoff-amount" placeholder="Amount (± )">
+          <button class="solid-btn" id="confirm-add-oneoff">Add</button>
+        </div>
+        <div id="oneoff-list"></div>
+      </div>
+
+      <div class="card explore-panel" id="explore-panel">
+        <h2>Explore</h2>
+        <div class="sub">Tap a stat above, or build your own view below</div>
+
+        <div class="field-row" style="margin-bottom:8px;">
+          <label>Range</label>
+          <div class="seg-row" id="range-buttons"></div>
+          <button class="ghost-btn" id="forecast-toggle">+ Forecast</button>
+          <button class="ghost-btn" id="compare-toggle">Compare years</button>
+        </div>
+
+        <div class="field-row" id="series-row" style="margin-bottom:4px;">
+          <label>Show</label>
+          <div class="seg-row" id="series-toggles"></div>
+        </div>
+
+        <div class="field-row" id="trend-row" style="margin-bottom:2px;">
+          <label>Trend</label>
+          <div class="seg-row" id="trend-buttons"></div>
+        </div>
+
+        <div class="trend-readout" id="trend-readout"></div>
+
+        <div class="toolbar">
+          <button class="ghost-btn" id="explore-table-toggle">View as table</button>
+          <button class="ghost-btn" id="explore-expand-btn">⤢ Expand</button>
+        </div>
+        <div class="chart-wrap" id="chart-explore"></div>
+        <div class="table-scroll" id="table-explore" style="display:none; margin-top:10px; max-height:260px; overflow-y:auto;"></div>
+        <div class="legend" id="explore-legend"></div>
+      </div>
+    </section>
+
+    <!-- ACCOUNTS -->
+    <section class="panel" id="panel-accounts">
+      <div class="card">
+        <div class="field-row" style="justify-content:space-between;">
+          <h2 style="margin:0;">Accounts</h2>
+          <div class="field-row" style="gap:6px;"><label for="balances-asof">As of</label><input type="date" id="balances-asof"></div>
+        </div>
+        <div class="sub">Balances are edited in place below. Update any time during the month — the "as of" date drives your monthly pace comparison.</div>
+        <div id="accounts-groups" style="display:flex; flex-direction:column; gap:10px;"></div>
+      </div>
+      <div class="card">
+        <h2>Illiquid assets</h2>
+        <div class="sub">House equity and Motorway Shares — tracked separately since they don't count toward runway, and can be excluded from net worth views.</div>
+        <div id="illiquid-list"></div>
+      </div>
+    </section>
+
+    <!-- ASSUMPTIONS -->
+    <section class="panel" id="panel-assumptions">
+      <div class="card">
+        <h2>Assumptions</h2>
+        <div class="sub">Your expected monthly amount for everything coming in and going out. Add or remove categories and groups as your life changes.</div>
+        <div class="summary-strip">
+          <div class="stat-tile"><div class="label">Income</div><div class="value" id="assum-income-total">—</div></div>
+          <div class="stat-tile"><div class="label">Outgoings</div><div class="value" id="assum-outgoing-total">—</div></div>
+          <div class="stat-tile"><div class="label">Net / mo</div><div class="value" id="assum-net-total">—</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="field-row" style="justify-content:space-between;">
+          <h2 style="margin:0;">Key dates</h2>
+          <button class="ghost-btn" id="add-keydate-btn">+ Add</button>
+        </div>
+        <div class="sub">When money actually moves each month — pay days, card payments, big bills. Used to gauge whether you're on pace mid-month.</div>
+        <div id="add-keydate-form" class="add-row" style="display:none;">
+          <input type="text" id="new-keydate-label" placeholder="Label (e.g. DS payday)">
+          <input type="number" id="new-keydate-day" placeholder="Day" min="1" max="31" class="keydate-day">
+          <button class="solid-btn" id="confirm-add-keydate">Add</button>
+        </div>
+        <div id="keydates-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="field-row" style="justify-content:space-between;">
+          <h2 style="margin:0;">Categories</h2>
+          <button class="ghost-btn" id="add-group-btn">+ Add group</button>
+        </div>
+        <div id="assumptions-groups" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;"></div>
+      </div>
+    </section>
+
+    <!-- FUTURE -->
+    <section class="panel" id="panel-future">
+      <div class="card">
+        <h2>Runway check</h2>
+        <div class="runway-banner" id="runway-banner">
+          <div class="runway-icon" id="runway-icon">✓</div>
+          <div class="runway-text" id="runway-text">—</div>
+        </div>
+        <div class="chart-wrap" id="chart-runway" style="margin-top:14px;"></div>
+      </div>
+      <div class="card">
+        <div class="field-row" style="justify-content:space-between;">
+          <h2 style="margin:0;">Coming up</h2>
+          <button class="ghost-btn" id="add-future-btn">+ Add item</button>
+        </div>
+        <div class="sub">Known future costs and income — add anything and the runway check above updates instantly</div>
+        <div id="add-future-form" class="add-row" style="display:none;">
+          <input type="date" id="new-future-date">
+          <input type="text" id="new-future-desc" placeholder="Description">
+          <input type="number" id="new-future-amount" placeholder="Amount (− exp / + inc)">
+          <button class="solid-btn" id="confirm-add-future">Add</button>
+        </div>
+        <div id="future-list"></div>
+      </div>
+    </section>
+
+    <!-- HOUSE -->
+    <section class="panel" id="panel-house">
+      <div class="card">
+        <h2>House project funds</h2>
+        <div class="house-summary-grid">
+          <div class="stat-tile"><div class="label">Total funds</div><input class="inline-input num" style="font-family:var(--font-mono); font-size:16px; padding:0; width:100%;" type="number" id="house-funds-total"></div>
+          <div class="stat-tile"><div class="label">Total spend</div><div class="value" id="house-spend-total">—</div></div>
+          <div class="stat-tile"><div class="label">Remaining</div><div class="value" id="house-remaining">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="field-row" style="justify-content:space-between;">
+          <h2 style="margin:0;">Renovation cost by category</h2>
+          <button class="ghost-btn" id="add-house-btn">+ Add</button>
+        </div>
+        <div class="chart-wrap" id="chart-house"></div>
+        <div id="house-cats-list" style="margin-top:8px;"></div>
+      </div>
+      <div class="card">
+        <h2>Furnishings</h2>
+        <div class="sub">By room, from your itemised list — editable</div>
+        <div id="furnishings-list"></div>
+        <div class="add-row"><input type="text" id="new-room-name" placeholder="Room"><input type="number" id="new-room-amt" placeholder="Total"><button class="ghost-btn" id="add-room-btn">+ Add room</button></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="credit">The Seligman Ledger — private, encrypted, shared</footer>
+</div>
+
+<div class="fs-overlay" id="fs-overlay">
+  <div class="fs-head">
+    <div class="fs-title" id="fs-title">Explore</div>
+    <button class="ghost-btn" id="fs-close">✕ Close</button>
+  </div>
+  <div class="fs-body">
+    <div class="legend" id="fs-legend" style="margin-bottom:8px;"></div>
+    <div class="chart-wrap" id="chart-fullscreen"></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
