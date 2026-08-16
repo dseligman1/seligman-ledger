@@ -150,7 +150,12 @@
       setSyncStatus('saved');
       enterApp();
     } catch(e){
-      $('pin-error').textContent = 'Could not save to GitHub: ' + e.message;
+      if (e.name === 'GhAuthError'){
+        $('pin-error').innerHTML = 'GitHub rejected the write — your token likely doesn\'t have Contents: Read and write on this repo. <a href="#" id="reconnect-link-2">Reconnect with a new token</a>.';
+        $('reconnect-link-2').addEventListener('click', (ev) => { ev.preventDefault(); localStorage.removeItem(PAT_KEY); pat=null; $('first-run-choice').style.display='none'; showConnectGate(); });
+      } else {
+        $('pin-error').textContent = 'Could not save to GitHub: ' + e.message;
+      }
     }
   }
 
