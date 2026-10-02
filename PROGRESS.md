@@ -11,10 +11,9 @@ tab + "Assumptions" tab + legacy house-move project tabs).
 
 - **Live app**: https://dseligman1.github.io/seligman-ledger/
 - **Repo**: https://github.com/dseligman1/seligman-ledger (public — see "Why public" below)
-- **Working copy for edits**: `C:\Users\DanSeligman\my-webapp` (has its own git
-  remote to the same repo). This clone in the Claude Personal Folder is a second
-  checkout — pick one to work from per session and `git pull` the other after,
-  don't diverge them.
+- **Working copy for edits** (as of 2026-10-02): this repo, cloned at
+  `Documents\Claude\Projects\seligman-ledger\code` on Dan's machine — the only
+  checkout. The older `C:\Users\DanSeligman\my-webapp` copy was on a previous machine.
 
 ## Architecture — and why
 
