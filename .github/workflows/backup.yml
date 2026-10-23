@@ -1,0 +1,36 @@
+# Monthly backup: 06:00 UTC on the 7th, after the month's check-in should be done.
+# Saves a GitHub Release "backup-YYYY-MM-DD" holding (i) a git bundle of the whole repo with every
+# commit (code + every version of the encrypted data) and (ii) copies of the encrypted data files.
+# Releases survive file deletions and history rewrites. Restore steps: PROGRESS.md → Backups.
+name: Monthly backup
+on:
+  schedule:
+    - cron: '0 6 7 * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build backup files
+        run: |
+          D=$(TZ=Europe/London date +%Y-%m-%d)
+          echo "D=$D" >> "$GITHUB_ENV"
+          mkdir -p out
+          git bundle create "out/seligman-ledger-$D.bundle" --all
+          cp ledger.json "out/ledger-$D.json"
+          cp data.json "out/data-v1-$D.json"
+          git log -1 --format='Latest commit %h, %cd' --date=iso > out/notes.txt
+          ls -la out
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="backup-$D"
+          if gh release view "$TAG" >/dev/null 2>&1; then TAG="$TAG-$(date +%H%M)"; fi
+          gh release create "$TAG" out/*.bundle out/*.json --title "Backup $D" --notes-file out/notes.txt --latest=false
