@@ -216,6 +216,68 @@
     L.toast('Open the downloaded file to add the reminder to your calendar');
   }
 
+  // ---------------- phone notifications ----------------
+  // The device subscribes here; the subscription is saved (encrypted) in the ledger. A scheduled GitHub
+  // Action (.github/workflows/reminders.yml) decrypts it and sends the reminder at 9am UK time.
+  const VAPID_PUBLIC = 'BMbsd0OxaCI31bmYOBD8yF3KUwX3UPqKhV5QipwDPcJWepLOg_8Lq-U1gKAfj6Nz_NutHu5cQmMgWl9ksXzR5Eg';
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  const pushCapable = () => window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const b64u = s => { const p = '='.repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+  const deviceName = () => { const u = navigator.userAgent; const d = isIOS ? (/iPad/.test(u) || !/iPhone/.test(u) ? 'iPad' : 'iPhone') : /Android/.test(u) ? 'Android' : /Mac/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows PC' : 'Device'; return d + (standalone() ? ' (home-screen app)' : ''); };
+  const push = L.push = { endpoint: null, ready: false };
+  push.init = async () => {
+    if (!pushCapable()) { push.ready = true; return; }
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js', { scope: './' });
+      const sub = await reg.pushManager.getSubscription();
+      push.endpoint = sub ? sub.endpoint : null;
+      navigator.serviceWorker.addEventListener('message', ev => { if (ev.data && ev.data.type === 'checkin'){ UI.tab = 'overview'; L.saveUI(); L.render(); } });
+    } catch(e){ console.warn('Service worker not registered', e); }
+    push.ready = true;
+    if (L.modal.isOpen) L.modal.refresh();
+  };
+  const pushHtml = () => {
+    const s = L.S, subs = s.push.subs, mine = push.endpoint && subs.some(x => x.endpoint === push.endpoint);
+    const intro = '<div class="small muted" style="margin-bottom:10px">A notification at 9am on the 1st of each month, then every day at 9am until that month\'s check-in is ticked off.</div>';
+    let ctl;
+    if (!pushCapable()){
+      ctl = isIOS && !standalone()
+        ? '<div class="note box small">On iPhone, notifications only work in the home-screen app. In Safari tap <b>Share → Add to Home Screen</b>, open the Ledger from the new icon, then come back here.</div>'
+        : `<div class="note box small">${window.isSecureContext ? 'This browser doesn\'t support web notifications.' : 'Notifications need the live app (https). They can\'t run in the local preview.'}</div>`;
+    } else if (Notification.permission === 'denied'){
+      ctl = `<div class="note box small">Notifications are blocked for this app. ${isIOS ? 'Turn them on in iPhone Settings → Notifications → Ledger' : 'Allow them in your browser\'s site settings'}, then come back here.</div>`;
+    } else if (mine){
+      ctl = `<div class="small" style="margin-bottom:8px"><span class="upd ok">✓ On for this device</span></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="pushTest">Show a test here</button><button class="btn" data-act="pushOff">Turn off on this device</button></div>`;
+    } else {
+      ctl = `<button class="btn primary" data-act="pushOn">${L.icons.bell.replace('<svg', '<svg width="16" height="16"')}Turn on notifications for this device</button>`;
+    }
+    const list = subs.length ? `<div class="rows" style="margin-top:12px">${subs.map(x => `<div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div class="name small">${esc(x.device || 'Device')}${x.endpoint === push.endpoint ? ' <span class="muted">· this one</span>' : ''}<div class="tiny muted">Added ${M.dateLbl(x.added) || ''}</div></div><button class="btn sm" data-act="pushRemove" data-id="${esc(x.id)}">Remove</button></div>`).join('')}</div>` : '';
+    return intro + ctl + list;
+  };
+  L.acts.pushOn = async () => {
+    try {
+      const perm = await Notification.requestPermission(); // must be the first await: iOS needs it inside the tap
+      if (perm !== 'granted'){ L.toast('Notifications weren\'t allowed'); L.modal.refresh(); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUBLIC) });
+      const j = sub.toJSON(); push.endpoint = j.endpoint;
+      L.commit(s => { s.push.subs = s.push.subs.filter(x => x.endpoint !== j.endpoint); s.push.subs.push({ id: L.uid('p'), endpoint: j.endpoint, keys: j.keys, device: deviceName(), added: M.today() }); }, { modal: true });
+      L.toast('Notifications on for this device');
+    } catch(e){ L.toast('Couldn\'t turn on notifications: ' + e.message); }
+  };
+  L.acts.pushOff = async () => {
+    try { const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch(e){}
+    const ep = push.endpoint; push.endpoint = null;
+    L.commit(s => { s.push.subs = s.push.subs.filter(x => x.endpoint !== ep); }, { modal: true });
+    L.toast('Notifications off for this device');
+  };
+  L.acts.pushRemove = el => { const x = L.S.push.subs.find(v => v.id === el.dataset.id); if (x && x.endpoint === push.endpoint) return L.acts.pushOff(); L.commit(s => { s.push.subs = s.push.subs.filter(v => v.id !== el.dataset.id); }, { modal: true }); };
+  L.acts.pushTest = async () => {
+    try { const reg = await navigator.serviceWorker.ready; await reg.showNotification('The Seligman Ledger', { body: 'Test: this is how the 9am check-in reminder will look.', icon: 'icon-192.png', tag: 'ledger-test' }); }
+    catch(e){ L.toast('Couldn\'t show a test: ' + e.message); }
+  };
+
   // ---------------- chart popup ----------------
   L.openChart = key => {
     L.modal.open(() => {
@@ -239,7 +301,8 @@
         title: 'Settings', narrow: true,
         body: `
           <div class="section"><h3>Look</h3><div class="seg">${themeSeg}</div></div>
-          <div class="section"><h3>Reminders</h3><div class="small muted" style="margin-bottom:8px">Adds a repeating event to your calendar: 9am on the 1st of each month, with a nudge two days later.</div><button class="btn" data-act="reminder">${L.icons.bell.replace('<svg', '<svg width="16" height="16"')}Add monthly reminder</button></div>
+          <div class="section"><h3>Phone notifications</h3>${pushHtml()}</div>
+          <div class="section"><h3>Calendar reminder</h3><div class="small muted" style="margin-bottom:8px">Prefer your calendar? Adds a repeating event: 9am on the 1st of each month, with a nudge two days later.</div><button class="btn" data-act="reminder">${L.icons.bell.replace('<svg', '<svg width="16" height="16"')}Add to calendar</button></div>
           <div class="section"><h3>Planning year</h3>
             <div class="small muted" style="margin-bottom:8px">Drives months of cover, the plan line on Trends and the projection.</div>
             <select class="input" data-edit="field" data-coll="settings" data-f="planYear" data-type="num" data-refresh="1">${years}</select></div>
@@ -281,7 +344,8 @@
   }
   function enterApp(state){
     L.S = state; M.invalidate();
-    show('app'); buildShell();
+    if (location.hash === '#checkin'){ UI.tab = 'overview'; history.replaceState(null, '', location.pathname + location.search); }
+    show('app'); buildShell(); push.init();
     if (L.PREVIEW) syncStatus('preview', 'Preview · local only'); else syncStatus('saved', 'Synced');
     L.render();
     if (!L.PREVIEW){

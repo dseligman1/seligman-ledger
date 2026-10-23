@@ -44,6 +44,8 @@ also works from `file://`.
 | `js/charts.js` | Dependency-free SVG charts: line/stacked area, signed bars + overlay, waterfall, sparkline, html bars. Tooltips, resize-aware |
 | `js/app.js` | Formatting, UI prefs, render loop, chart registry, modal, delegated events, settings, boot |
 | `js/views.js` | The five pages (Overview, Accounts, Budget, Trends, Planner), chart specs and popups |
+| `sw.js` | Service worker. Only shows push notifications and handles taps; no caching |
+| `.github/workflows/reminders.yml` + `.github/reminders/remind.mjs` | Scheduled check-in reminders (see below) |
 
 - **Data file**: `ledger.json` (encrypted v2). The v1 file `data.json` is **left untouched** as a backup;
   if `ledger.json` is ever missing, unlock migrates `data.json` automatically.
@@ -69,7 +71,9 @@ localStorage; Settings → Reset preview restores the seed.
   flags (2026-10-23); any future unlogged month also repeats the month before (`M.timeline`).
 - **Rows 82–83 (house equity, MW shares)** → asset `balances` on every snapshot, so Other assets and
   Net worth have full history. They're the sheet's model values, so still badged "est.".
-- **Rows 85, 87 and group subtotals (13, 23, 30, 37, 46, 49, 62)** → `planHistory[month]`. Used as the
+- **Rows 85, 87 and group subtotals (13, 23, 30, 37, 46, 49, 62)** → `planHistory[month]`; the line
+  rows under each group (14–22, 24–29, 31–36, 38–45, 47–48, 50–61, 63–66) → `planHistory[month].lines`
+  (matched to budget lines by name within the group; sums checked against the group rows, 0 mismatches). Used as the
   plan for **past** months (`M.planMonth`), because budget-line kinds describe today (the flat rent,
   Hillend etc. were active in 2023–24). From the current month on, the plan comes from the Budget tab.
 - **Panel AX102:BE118** → accounts (savings/current split taken from the `BD102`/`BD103` formulas)
@@ -118,8 +122,32 @@ secondary columns below 560px (`.hide-sm`).
   `UI.off[chartKey]`, and the y-axis rescales to the visible series.
 - Navigation: sidebar ≥1100px; hamburger drawer below that; bottom tab bar below 900px. Theme toggle
   in the header (sun/moon) and in the menu (Dark/Light/Auto).
-- Reminders: Settings or menu → "Monthly reminder" downloads a repeating `.ics` (9am on the 1st, nudge
+- Where the money goes (Budget): one bucket ticked → bars split by that bucket's lines (top 7 + Other).
+  The line on the right axis is the ticked spend as % of that month's total income (a deliberate
+  dual axis Dan asked for; outlier months such as Dec 2024/Jan 2025, where the sheet booked the house
+  purchase against income, are clipped and labelled). Tapping a bar opens that month's breakdown
+  below the chart: bucket % of income, then each line's % of its bucket.
+- Calendar reminder: Settings or menu → "Monthly reminder" downloads a repeating `.ics` (9am on the 1st, nudge
   2 days later). The home-screen icon badge shows accounts left to update where supported.
+
+## Push reminders (v2.2)
+
+- **Device side**: Settings → Phone notifications → "Turn on" asks permission, subscribes with the
+  VAPID public key in `js/app.js`, and saves the subscription in `state.push.subs` (so it's encrypted
+  in `ledger.json` and shared across devices). iPhone needs iOS 16.4+ and the app opened from the
+  home-screen icon; Safari tabs can't receive web push.
+- **Sender**: `.github/workflows/reminders.yml` runs at 08:00 and 09:00 UTC daily. `remind.mjs` keeps
+  only the run that is 9am in London (BST/GMT), decrypts `ledger.json` with the `LEDGER_PIN` secret,
+  loads `js/model.js` in a sandbox and calls `M.checkin(s, thisMonth)`. If the check-in isn't complete
+  it pushes "New month…" (1st, nothing started) or "Still to do: …" to every saved device. Logs only
+  counts, because Actions logs on a public repo are public.
+- **Secrets** (repo Settings → Secrets and variables → Actions): `LEDGER_PIN`, `VAPID_PRIVATE_KEY`.
+  Lose the private key → generate a new pair, put the public half in `app.js` and `remind.mjs`,
+  and turn notifications on again on each device.
+- **Manual run**: Actions tab → Check-in reminders → Run workflow → `test` (send a test now) or
+  `check` (normal logic now).
+- GitHub can delay scheduled runs by some minutes, and pauses schedules in public repos after 60 days
+  without commits (each save is a commit, so monthly use keeps it alive).
 
 ## Status as of 2026-10-23
 
@@ -128,10 +156,11 @@ checklist, bonus months, spend-by-group charts, projection with history, asset h
 transfer netting, side menu, header theme toggle. Tested at 390px and 1280px in headless Chrome,
 including a simulated 3 Nov multi-day check-in.
 
+v2.2: spend chart drill-down (tap a bar; one bucket → split by line), % of income line on a right axis,
+line-level plan history from the sheet, and push reminders via GitHub Actions.
+
 ### Next steps / ideas
 - Dan's feedback pass on the preview.
 - Wife's device: same token + PIN; first unlock pulls `ledger.json`.
 - Possible: per-account history before Aug 2026 could be recovered from old copies of the sheet, if any exist.
-- Possible: real push notifications (needs a service worker, VAPID keys and a scheduled GitHub Action
-  to send them; iPhone needs the app added to the home screen). Calendar reminder is the no-server version.
 - Possible: CSV export of the monthly table.

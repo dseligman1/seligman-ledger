@@ -204,39 +204,65 @@
   };
 
   // ---------- stacked bars (non-negative parts) ----------
-  // o: { labels, series:[{name,color,values}], height, fmtX, tipFmt, markIdx, markLabel }
+  // o: { labels, series:[{name,color,values}], height, fmtX, tipFmt, markIdx, markLabel, faded(i),
+  //      pct:{name, values, ref, refLabel} (line on its own right-hand % axis), sel, onPick(i) }
   C.stackBars = function(el, o){
     const W = Math.max(260, Math.floor(el.clientWidth)), H = o.height || 240;
     const n = o.labels.length; if (!n || !o.series.length){ el.innerHTML = '<div class="empty">Nothing selected</div>'; return; }
     const tot = o.labels.map((_, i) => o.series.reduce((t, s) => t + Math.max(0, s.values[i] || 0), 0));
     const tk = ticks(0, Math.max(1, ...tot), H < 240 ? 4 : 5), hi = tk[tk.length - 1];
-    const ml = Math.max(...tk.map(v => C.axisMoney(v).length)) * 6.6 + 10, mr = 8, mt = 14, mb = 24;
+    // right axis shares the left gridlines: pick a % step so the same number of ticks covers the line and its reference
+    const pv = o.pct ? o.pct.values : null;
+    let pStep = 0, pHi = 0;
+    let pCap = null;
+    if (pv){
+      // one-off months (e.g. a house purchase booked against income) would flatten the line, so clip outliers and label them
+      const pp = pv.filter(v => v != null).sort((a, b) => a - b), q = pp[Math.floor(pp.length * 0.9)] || 0;
+      const lim = Math.max(o.pct.ref || 0, q) * 1.3;
+      if (pp.length > 6 && pp[pp.length - 1] > lim) pCap = lim;
+      const need = Math.max(o.pct.ref || 0, ...pp.map(v => pCap ? Math.min(v, pCap) : v)) * 1.04; pStep = niceStep(need, tk.length - 1); while (pStep * (tk.length - 1) < need) pStep = niceStep(pStep * 1.05 * (tk.length - 1), tk.length - 1); pHi = pStep * (tk.length - 1); }
+    const ml = Math.max(...tk.map(v => C.axisMoney(v).length)) * 6.6 + 10, mr = pv ? 40 : 8, mt = 14, mb = 24;
     const pw = W - ml - mr, ph = H - mt - mb, band = pw / n;
     const bw = Math.max(1.5, Math.min(30, band - Math.min(3, Math.max(1, band * 0.25))));
-    const cx = i => ml + band * i + band / 2, y = v => mt + (hi - v) / hi * ph;
+    const cx = i => ml + band * i + band / 2, y = v => mt + (hi - v) / hi * ph, yp = v => mt + (pHi - Math.min(pHi, v)) / pHi * ph;
     const fx = o.fmtX || (i => o.labels[i]);
     let g = svgOpen(W, H, `aria-label="${esc(o.aria || 'Stacked bars')}"`);
-    tk.forEach(v => { g += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" style="stroke:${v === 0 ? 'var(--axis)' : 'var(--grid)'}"/><text x="${ml - 8}" y="${y(v) + 4}" text-anchor="end">${esc(C.axisMoney(v))}</text>`; });
+    tk.forEach((v, k) => { g += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" style="stroke:${v === 0 ? 'var(--axis)' : 'var(--grid)'}"/><text x="${ml - 8}" y="${y(v) + 4}" text-anchor="end">${esc(C.axisMoney(v))}</text>`; if (pv) g += `<text x="${W - mr + 6}" y="${y(v) + 4}" text-anchor="start">${Math.round(pStep * k)}%</text>`; });
     xLabelIdx(o.labels, pw, o.xGap || 56).forEach(i => { g += `<text x="${cx(i)}" y="${H - 6}" text-anchor="middle">${esc(fx(i))}</text>`; });
+    g += `<rect class="sel" x="0" y="${mt}" width="${band}" height="${ph}" rx="3" style="fill:var(--ink);opacity:0;pointer-events:none"/>`;
     const gap = bw > 6 ? 1.5 : 0;
     for (let i = 0; i < n; i++){
       let base = 0; const parts = o.series.map(s => ({ s, v: Math.max(0, s.values[i] || 0) })).filter(p => p.v > 0);
       parts.forEach((p, k) => {
         const y0 = y(base), y1 = y(base + p.v); base += p.v;
-        const h = Math.max(0.5, y0 - y1 - (k < parts.length - 1 ? gap : 0)), top = y1 + (k < parts.length - 1 ? gap : 0) * 0;
+        const h = Math.max(0.5, y0 - y1 - (k < parts.length - 1 ? gap : 0)), top = y1;
         const r = k === parts.length - 1 ? Math.min(3, bw / 2, h) : 0, left = cx(i) - bw / 2;
         g += r ? `<path d="M${left},${y0}V${top + r}Q${left},${top} ${left + r},${top}H${left + bw - r}Q${left + bw},${top} ${left + bw},${top + r}V${y0}Z" style="fill:${p.s.color};opacity:${o.faded && o.faded(i) ? .55 : 1}"/>`
               : `<rect x="${left}" y="${y0 - h}" width="${bw}" height="${h}" style="fill:${p.s.color};opacity:${o.faded && o.faded(i) ? .55 : 1}"/>`;
       });
     }
     if (o.markIdx != null && o.markIdx >= 0 && o.markIdx < n){ const mx = ml + band * o.markIdx; g += `<line x1="${mx}" x2="${mx}" y1="${mt}" y2="${mt + ph}" style="stroke:var(--muted);stroke-dasharray:2 4"/><text x="${mx + 5}" y="${mt + 10}" class="dl" style="fill:var(--muted)">${esc(o.markLabel || 'Now')}</text>`; }
-    g += `<rect class="hl" x="0" y="${mt}" width="${band}" height="${ph}" style="fill:var(--ink);opacity:0;pointer-events:none"/><rect class="hit" x="${ml}" y="0" width="${pw}" height="${H}" fill="transparent"/></svg>`;
+    if (pv){
+      if (o.pct.ref && o.pct.ref <= pHi){ const ry = yp(o.pct.ref); g += `<line x1="${ml}" x2="${W - mr}" y1="${ry}" y2="${ry}" style="stroke:var(--ink-2);stroke-dasharray:5 4;opacity:.7"/><text x="${W - mr - 4}" y="${ry + 13}" text-anchor="end" class="dl" style="fill:var(--ink-2);paint-order:stroke;stroke:var(--surface);stroke-width:3px">${esc(o.pct.refLabel || '')}</text>`; }
+      let d = ''; pv.forEach((v, i) => { if (v == null) return; d += (d ? 'L' : 'M') + cx(i).toFixed(1) + ',' + yp(v).toFixed(1); });
+      if (d) g += `<path d="${d}" style="fill:none;stroke:var(--surface);stroke-width:5;stroke-linejoin:round"/><path d="${d}" style="fill:none;stroke:var(--ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round"/>`;
+      if (band >= 9) pv.forEach((v, i) => { if (v != null) g += `<circle cx="${cx(i)}" cy="${yp(v)}" r="2.6" style="fill:var(--ink);stroke:var(--surface);stroke-width:1.5"/>`; });
+      let lastLbl = -1e9;
+      pv.forEach((v, i) => { if (v != null && v > pHi && cx(i) - lastLbl > 34){ lastLbl = cx(i); g += `<text x="${cx(i)}" y="${mt - 3}" text-anchor="middle" class="dl" style="font-size:10px;fill:var(--ink);paint-order:stroke;stroke:var(--surface);stroke-width:3px">↑${Math.round(v)}%</text>`; } });
+    }
+    g += `<rect class="hl" x="0" y="${mt}" width="${band}" height="${ph}" style="fill:var(--ink);opacity:0;pointer-events:none"/><rect class="hit" x="${ml}" y="0" width="${pw}" height="${H}" fill="transparent" style="cursor:${o.onPick ? 'pointer' : 'default'}"/></svg>`;
     el.innerHTML = g;
-    const svg = el.querySelector('svg'), hl = svg.querySelector('.hl');
+    const svg = el.querySelector('svg'), hl = svg.querySelector('.hl'), sel = svg.querySelector('.sel');
+    const mark = i => { if (i == null || i < 0 || i >= n){ sel.style.opacity = 0; return; } sel.setAttribute('x', ml + band * i); sel.style.opacity = 0.1; };
+    mark(o.sel);
     interact(el, svg, null, n, px => Math.floor((px - ml) / band), i => {
       hl.setAttribute('x', ml + band * i); hl.style.opacity = 0.06;
       const html = o.tipFmt ? o.tipFmt(i) : `<div class="th">${esc(fx(i))}</div>` + o.series.slice().reverse().map(s => s.values[i] ? C.tipRow(s.name, L.fmt.gbp(s.values[i]), s.color) : '').join('') + C.tipRow('Total', `<b>${L.fmt.gbp(tot[i])}</b>`);
       return { x: cx(i), y: y(tot[i]), html };
+    });
+    if (o.onPick) svg.querySelector('.hit').addEventListener('click', ev => {
+      const r = svg.getBoundingClientRect(), i = Math.floor(((ev.clientX - r.left) * (W / r.width) - ml) / band);
+      if (i >= 0 && i < n){ mark(i); o.onPick(i); }
     });
   };
 

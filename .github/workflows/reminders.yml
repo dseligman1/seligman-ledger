@@ -1,0 +1,37 @@
+# Monthly check-in reminders: 9am UK time on the 1st, then daily at 9am until the check-in is complete.
+# Cron runs in UTC, so both 08:00 and 09:00 are scheduled and the script keeps whichever is 9am in London.
+name: Check-in reminders
+on:
+  schedule:
+    - cron: '0 8 * * *'
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'test = send a test notification now; check = run the normal reminder logic now'
+        type: choice
+        options: [test, check]
+        default: test
+permissions:
+  contents: read
+concurrency: reminders
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install web-push
+        run: npm install --no-save --no-audit --no-fund --prefix .github/reminders web-push@3.6.7
+      - name: Send reminder
+        working-directory: .
+        env:
+          LEDGER_PIN: ${{ secrets.LEDGER_PIN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'scheduled' }}
+          SCHEDULE: ${{ github.event.schedule }}
+          TZ: Europe/London
+        run: node .github/reminders/remind.mjs

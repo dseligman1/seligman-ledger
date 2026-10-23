@@ -1,6 +1,6 @@
 # The Seligman Ledger
 
-A private, shared family budget and net worth tracker. Static site, hosted on GitHub Pages, data stored **encrypted** in this repo as `data.json`.
+A private, shared family budget and net worth tracker. Static site, hosted on GitHub Pages, data stored **encrypted** in this repo as `ledger.json`.
 
 ## How it works
 
@@ -32,6 +32,12 @@ On first run you'll be asked to start empty or import a file. Use a ledger backu
 ### 5. Share access with your wife
 - Give her the **same GitHub token** (via a password manager, not plain text) and the **same PIN**.
 - She goes through steps 2–3 above on her own phone/browser with those same two values (she should choose "Start empty" only if going first — otherwise just enter the PIN and it'll pull the data you already imported).
+
+### 6. Turn on phone reminders (optional)
+On iPhone, open the app in Safari → Share → **Add to Home Screen**, then open it from the new icon.
+Go to **Settings → Phone notifications → Turn on**. You'll get a reminder at 9am on the 1st of each
+month, then every day at 9am until that month's check-in is complete. This needs two repo secrets,
+`LEDGER_PIN` and `VAPID_PRIVATE_KEY` (see `PROGRESS.md`).
 
 ## Notes on the data model
 

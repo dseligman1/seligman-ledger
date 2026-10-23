@@ -487,3 +487,21 @@ button.chip.on { border-color: var(--accent); color: var(--ink); background: var
 }
 @media print { .topbar, .bottomnav { display: none; } }
 @media (forced-colors: active) { .chart svg path { forced-color-adjust: auto; } }
+
+/* spend drill-down: a month's buckets, each opening to its lines */
+.drill { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.drill-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; margin-bottom: 8px; }
+.drill-g { border-bottom: 1px solid var(--line); }
+.drill-g > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0,1fr) auto 64px; gap: 10px; align-items: center; padding: 10px 2px; font-size: 14px; }
+.drill-g > summary::-webkit-details-marker { display: none; }
+.drill-g > summary .dg-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drill-g > summary .dg-name::before { content: '›'; color: var(--muted); display: inline-block; width: 10px; transition: transform .15s; }
+.drill-g[open] > summary .dg-name::before { transform: rotate(90deg); }
+.drill-g > summary .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.drill-g > summary .dg-num { font-variant-numeric: tabular-nums; }
+.drill-g > summary .dg-pct { text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.drill-g > summary:hover { background: var(--surface-2); }
+.drill-lines { padding: 4px 2px 14px 18px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.drill-lines .hbars { align-self: stretch; }
+.drill > .btn { margin-top: 10px; }
+@media (min-width: 640px) { .drill-g > summary { grid-template-columns: minmax(0,1fr) auto 110px; } }

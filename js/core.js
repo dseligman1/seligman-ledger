@@ -150,6 +150,7 @@
     if (typeof s.notes !== 'string') s.notes = '';
     if (!s.planHistory || typeof s.planHistory !== 'object') s.planHistory = {};
     if (!s.checklist || typeof s.checklist !== 'object') s.checklist = {};
+    s.push = Object.assign({ subs: [] }, s.push || {}); if (!Array.isArray(s.push.subs)) s.push.subs = [];
     s.accounts.forEach(a => { if (!Array.isArray(a.tags)) a.tags = []; });
     s.snapshots.sort((a, b) => a.month < b.month ? -1 : 1);
     return s;
@@ -195,7 +196,11 @@
   // Preview mode: data comes from ../data/ledger-preview.js (never committed); edits stay in localStorage.
   L.loadPreview = function(){
     const saved = L.safeLS.get(CFG.previewKey);
-    if (saved){ try { return L.normalise(JSON.parse(saved)); } catch(e){} }
+    if (saved){ try {
+      const st = JSON.parse(saved), seed = window.LEDGER_PREVIEW_STATE;
+      if (seed && seed.planHistory) st.planHistory = seed.planHistory; // sheet history is read-only, so always take the latest seed's
+      return L.normalise(st);
+    } catch(e){} }
     if (window.LEDGER_PREVIEW_STATE) return L.normalise(JSON.parse(JSON.stringify(window.LEDGER_PREVIEW_STATE)));
     return null;
   };

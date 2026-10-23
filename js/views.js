@@ -211,7 +211,9 @@
   };
 
   // Planned spend per month by group: the sheet's plan for past months, the Budget tab from now on.
-  L.specs.spend = () => {
+  // One bucket ticked -> the bars split by that bucket's budget lines. Tap a bar for the month's breakdown.
+  const LINE_SLOTS = 7;
+  function spendModel(){
     const s = S(), groups = M.spendGroups(s), now = M.thisMonth();
     const lastY = M.years(s)[M.years(s).length - 1], end = `${lastY}-12`;
     const firstPlan = Object.keys(s.planHistory || {}).sort()[0] || now;
@@ -219,15 +221,77 @@
     const labels = []; for (let m = start < firstPlan && s.planHistory && Object.keys(s.planHistory).length ? firstPlan : start; m <= end; m = M.addM(m, 1)) labels.push(m);
     const items = groups.map(g => ({ id: g.id, name: g.name, color: groupColor(s, g.id) }));
     const on = items.filter(i => vis('spend', i.id));
-    const ser = on.map(i => ({ name: i.name, color: i.color, values: labels.map(m => M.planMonth(s, m).groups[i.id] || 0) }));
+    const gAmt = (m, gid) => M.planMonth(s, m).groups[gid] || 0;
+    let ser, mode = 'groups', gid = null, lineItems = [];
+    if (on.length === 1){
+      mode = 'lines'; gid = on[0].id;
+      // rank the bucket's lines by spend over the whole history + plan, so colours don't shift with the range
+      const all = Object.keys(s.planHistory || {}).concat(labels);
+      const lines = s.budget.lines.filter(l => l.groupId === gid).map(l => ({ l, t: all.reduce((t, m) => t + (M.planMonthLines(s, m)[l.id] || 0), 0) })).filter(x => x.t > 0).sort((p, q) => q.t - p.t);
+      const top = lines.length > LINE_SLOTS + 1 ? lines.slice(0, LINE_SLOTS) : lines, rest = lines.slice(top.length);
+      lineItems = top.map((x, k) => ({ id: x.l.id, name: x.l.name, color: `var(--s${k + 1})`, ids: [x.l.id] }));
+      if (rest.length) lineItems.push({ id: 'other', name: `Other (${rest.length})`, color: 'var(--muted)', ids: rest.map(x => x.l.id) });
+      ser = lineItems.map(i => ({ name: i.name, color: i.color, values: labels.map(m => { const pl = M.planMonthLines(s, m); return i.ids.reduce((t, id) => t + (pl[id] || 0), 0); }) }));
+      const unsplit = labels.map((m, k) => Math.max(0, gAmt(m, gid) - ser.reduce((t, x) => t + x.values[k], 0)));
+      if (unsplit.some(v => v > 0.5)) ser.push({ name: 'Not split by line', color: 'var(--line-2)', values: unsplit.map(v => v > 0.5 ? v : 0) });
+    } else ser = on.map(i => ({ name: i.name, color: i.color, values: labels.map(m => gAmt(m, i.id)) }));
+    const tot = labels.map((_, k) => ser.reduce((t, x) => t + x.values[k], 0));
+    const inflow = labels.map(m => M.planMonth(s, m).inflow);
+    const pctInc = tot.map((v, k) => inflow[k] > 0 ? v / inflow[k] * 100 : null);
+    return { s, now, labels, items, on, ser, mode, gid, lineItems, tot, inflow, pctInc };
+  }
+  const pctTxt = v => v == null ? '—' : Math.round(v) + '%';
+
+  // The month breakdown under the chart: each bucket with its share of income, opening to its lines' share of the bucket.
+  const spendOpen = new Set();
+  document.addEventListener('toggle', e => { const d = e.target; if (d.matches && d.matches('.drill-g')){ if (d.open) spendOpen.add(d.dataset.g); else spendOpen.delete(d.dataset.g); } }, true);
+  function spendDetail(sm){
+    const s = sm.s, m = sm.labels.includes(UI.spendSel) ? UI.spendSel : (sm.labels.includes(sm.now) ? sm.now : sm.labels[sm.labels.length - 1]);
+    const pmo = M.planMonth(s, m), pl = M.planMonthLines(s, m), inflow = pmo.inflow;
+    const rows = sm.on.map(g => {
+      const total = pmo.groups[g.id] || 0;
+      const lines = s.budget.lines.filter(l => l.groupId === g.id && pl[l.id]).map(l => ({ l, v: pl[l.id] })).sort((p, q) => q.v - p.v);
+      const split = lines.reduce((t, x) => t + x.v, 0);
+      if (total - split > 0.5) lines.push({ l: { name: 'Not split by line' }, v: total - split, muted: true });
+      return { g, total, lines };
+    }).filter(r => r.total > 0).sort((p, q) => q.total - p.total);
+    const spend = rows.reduce((t, r) => t + r.total, 0);
+    const lineCol = id => { const it = sm.lineItems.find(i => i.ids.includes(id)); return it ? it.color : 'var(--muted)'; };
+    const open = r => sm.mode === 'lines' || spendOpen.has(r.g.id);
+    const body = rows.map(r => `<details class="drill-g" data-g="${r.g.id}" ${open(r) ? 'open' : ''}>
+        <summary><span class="dg-name"><i class="sw box" style="background:${r.g.color}"></i>${esc(r.g.name)}</span><span class="dg-num">${gbp(r.total)}</span><span class="dg-pct muted">${pctTxt(inflow ? r.total / inflow * 100 : null)}<span class="hide-sm"> of income</span></span></summary>
+        <div class="drill-lines">${r.lines.length ? C.hbars(r.lines.map(x => ({ label: x.l.name, value: x.v, color: x.muted ? 'var(--line-2)' : (sm.mode === 'lines' ? lineCol(x.l.id) : r.g.color), display: `${gbp(x.v)} <span class="muted tiny">${Math.round(x.v / r.total * 100)}%</span>` })), { max: r.total }) : '<div class="muted small">No line detail for this month.</div>'}
+          ${sm.mode === 'groups' ? `<button class="btn sm" data-act="spendOnly" data-g="${r.g.id}">Chart ${esc(r.g.name)} by line</button>` : ''}</div>
+      </details>`).join('');
+    return `<div class="drill-head"><div><b>${M.lbl(m, 'long')}</b> <span class="muted small">· ${m > sm.now ? 'budget plan' : m === sm.now ? 'this month' : 'the sheet\'s plan'}</span></div>
+        <div class="small"><b>${gbp(spend)}</b> <span class="muted">of ${gbp(inflow)} income ·</span> <b class="${spend > inflow ? 'neg' : ''}">${pctTxt(inflow ? spend / inflow * 100 : null)}</b></div></div>
+      ${body || '<div class="muted small">Nothing planned for the buckets you\'ve ticked.</div>'}
+      ${sm.mode === 'lines' ? `<button class="btn sm" data-act="spendAll">Show all buckets</button>` : ''}
+      <div class="tiny muted" style="margin-top:8px">Tap any bar to see that month. Line % = share of its bucket.</div>`;
+  }
+  L.acts.spendOnly = el => { UI.off.spend = M.spendGroups(S()).map(g => g.id).filter(id => id !== el.dataset.g); spendOpen.add(el.dataset.g); L.saveUI(); L.render(); if (L.modal.isOpen) L.modal.refresh(); };
+  L.acts.spendAll = () => { UI.off.spend = []; L.saveUI(); L.render(); if (L.modal.isOpen) L.modal.refresh(); };
+
+  L.specs.spend = () => {
+    const sm = spendModel(), { labels, ser, now } = sm;
     const nowIdx = labels.indexOf(now);
+    const one = sm.mode === 'lines' ? sm.on[0].name : null;
+    const selIdx = () => { const i = labels.indexOf(UI.spendSel); return i >= 0 ? i : nowIdx; };
+    const tableMonths = [M.addM(now, -12), now, M.addM(now, 12)].filter(m => labels.includes(m));
     return {
-      title: 'Where the money goes', sub: 'Planned spend each month by group. Before today it\'s what the sheet planned at the time; from today it\'s the Budget tab', pills: items,
+      title: 'Where the money goes',
+      sub: one ? `${esc(one)} split by budget line. Line on the right axis = ${esc(one)} as a % of total income.` : 'Planned spend each month by bucket. The line (right axis) is the ticked buckets as a % of total income; above the dashed 100% line means more going out than coming in.',
+      pills: sm.items,
       controls: () => seg('spendRange', [['1y','Last 12 mo + ahead'],['2y','Last 24 mo + ahead'],['all','All']], UI.spendRange),
-      draw(el, big){ C.stackBars(el, { labels, series: ser, height: big ? 380 : 280, fmtX: i => M.lbl(labels[i]), markIdx: nowIdx, markLabel: 'Now', faded: i => labels[i] > now, aria: 'Planned spend by group per month',
-        tipFmt: i => `<div class="th">${M.lbl(labels[i], 'long')}${labels[i] > now ? ' · planned' : ''}</div>` + ser.slice().reverse().map(x => x.values[i] ? C.tipRow(x.name, gbp(x.values[i]), x.color) : '').join('') + C.tipRow('Total', `<b>${gbp(ser.reduce((t, x) => t + x.values[i], 0))}</b>`) }); },
-      table: () => `<table class="tbl"><thead><tr><th>Group</th>${[M.addM(now, -12), now, M.addM(now, 12)].filter(m => labels.includes(m)).map(m => `<th class="r">${M.lbl(m)}</th>`).join('')}</tr></thead><tbody>${on.map(i => `<tr><td>${esc(i.name)}</td>${[M.addM(now, -12), now, M.addM(now, 12)].filter(m => labels.includes(m)).map(m => `<td class="r">${gbp(M.planMonth(s, m).groups[i.id] || 0)}</td>`).join('')}</tr>`).join('')}</tbody></table>`,
-      notes: () => 'Bars after "Now" are lighter because they\'re planned. Set a bonus or annual bill to a specific month in its budget line and it shows up in that month here.',
+      draw(el, big){ C.stackBars(el, { labels, series: ser, height: big ? 380 : 280, fmtX: i => M.lbl(labels[i]), markIdx: nowIdx, markLabel: 'Now', faded: i => labels[i] > now, aria: 'Planned spend per month with share of income',
+        pct: { name: '% of income', values: sm.pctInc, ref: sm.mode === 'groups' ? 100 : null, refLabel: '100% of income' }, sel: selIdx(),
+        onPick: i => { UI.spendSel = labels[i]; const html = spendDetail(spendModel()); document.querySelectorAll('[data-drill="spend"]').forEach(d => { d.innerHTML = html; }); document.querySelectorAll('[data-chart="spend"]').forEach(c => { if (c !== el) L.spec('spend').draw(c, c.dataset.big === '1'); }); },
+        tipFmt: i => `<div class="th">${M.lbl(labels[i], 'long')}${labels[i] > now ? ' · planned' : ''}</div>` + ser.slice().reverse().map(x => x.values[i] ? C.tipRow(x.name, gbp(x.values[i]), x.color) : '').join('') + C.tipRow('Total', `<b>${gbp(sm.tot[i])}</b>`) + C.tipRow('Income', gbp(sm.inflow[i])) + C.tipRow('% of income', `<b>${pctTxt(sm.pctInc[i])}</b>`) }); },
+      readout: () => `${sm.mode === 'lines' ? C.legend(ser.map(x => ({ name: x.name, color: x.color, box: true })).concat([{ name: '% of income', color: 'var(--ink)' }])) : C.legend([{ name: '% of income (right axis)', color: 'var(--ink)' }, { name: '100% of income', color: 'var(--ink-2)', dash: true }])}<div class="drill" data-drill="spend">${spendDetail(sm)}</div>`,
+      table: () => sm.mode === 'lines'
+        ? `<table class="tbl"><thead><tr><th>Line</th>${tableMonths.map(m => `<th class="r">${M.lbl(m)}</th>`).join('')}</tr></thead><tbody>${ser.map(x => `<tr><td>${esc(x.name)}</td>${tableMonths.map(m => `<td class="r">${gbp(x.values[labels.indexOf(m)])}</td>`).join('')}</tr>`).join('')}<tr><td><b>% of income</b></td>${tableMonths.map(m => `<td class="r">${pctTxt(sm.pctInc[labels.indexOf(m)])}</td>`).join('')}</tr></tbody></table>`
+        : `<table class="tbl"><thead><tr><th>Bucket</th>${tableMonths.map(m => `<th class="r">${M.lbl(m)}</th>`).join('')}</tr></thead><tbody>${sm.on.map(i => `<tr><td>${esc(i.name)}</td>${tableMonths.map(m => `<td class="r">${gbp(M.planMonth(sm.s, m).groups[i.id] || 0)}</td>`).join('')}</tr>`).join('')}<tr><td><b>% of income</b></td>${tableMonths.map(m => `<td class="r">${pctTxt(sm.pctInc[labels.indexOf(m)])}</td>`).join('')}</tr></tbody></table>`,
+      notes: () => 'Bars after "Now" are lighter because they\'re planned. Before today the figures are what the sheet planned at the time; from today they come from the Budget tab. Income includes bonuses in the month they\'re paid, so bonus months show a lower %. Tick one bucket to split it by line.',
     };
   };
 

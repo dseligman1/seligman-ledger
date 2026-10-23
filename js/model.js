@@ -199,6 +199,15 @@
     r.net = r.inflow - r.outgoings;
     return r;
   });
+  // Line-level version of planMonth's groups: { lineId: amount }. Past months come from the sheet's
+  // own rows (planHistory.lines); a month with only group totals returns {} so callers fall back.
+  M.planMonthLines = (s, ym) => memo('pl' + ym, () => {
+    const h = s.planHistory && s.planHistory[ym];
+    if (h && ym < M.thisMonth()) return h.lines || {};
+    const y = M.budgetYear(s, M.yearOf(ym)), r = {};
+    s.budget.lines.forEach(l => { if (M.OUT.includes(l.kind) || l.kind === 'saving'){ const v = M.lineInMonth(l, ym, M.amt(l, y)); if (v) r[l.id] = v; } });
+    return r;
+  });
   M.groupTotal = (s, gid, y, kinds) => s.budget.lines.filter(l => l.groupId === gid && (!kinds || kinds.includes(l.kind))).reduce((t, l) => t + M.amt(l, y), 0);
   M.spendGroups = s => s.budget.groups.filter(g => s.budget.lines.some(l => l.groupId === g.id && (M.OUT.includes(l.kind) || l.kind === 'saving')) || Object.values(s.planHistory || {}).some(h => h.groups && h.groups[g.id]));
 
