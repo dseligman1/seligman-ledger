@@ -176,22 +176,46 @@
     t.netExBonus = t.income - t.outgoings;
     return t;
   });
+  // When a line is paid can differ by year (a bonus spread over 2024 but paid in one go in 2025).
+  // payMonths = { year: [1-12] }; no entry for a year = every month. A bare list (older files) applies to every year.
+  M.payMonths = (line, y) => {
+    const pm = line.payMonths; if (!pm) return null;
+    const v = Array.isArray(pm) ? pm : pm[y];
+    return v && v.length ? v : null;
+  };
   // What a line actually pays in a given calendar month: monthly, or lumped into chosen months.
-  M.lineInMonth = (line, ym, monthly) => {
-    const pm = line.payMonths;
-    if (!pm || !pm.length) return monthly;
+  M.lineInMonth = (line, ym, monthly, y = M.yearOf(ym)) => {
+    const pm = M.payMonths(line, y);
+    if (!pm) return monthly;
     return pm.includes(M.monthNum(ym)) ? monthly * 12 / pm.length : 0;
   };
+  // The sheet spread every line evenly, so for past months only the timing differs: each line with
+  // pay months that year moves its monthly average into those months. { lineId: change vs the sheet }.
+  const timingShift = (s, ym) => {
+    const y = M.yearOf(ym), out = {};
+    s.budget.lines.forEach(l => { if (l.kind === 'off' || !M.payMonths(l, y)) return; const a = M.amt(l, y), d = M.lineInMonth(l, ym, a, y) - a; if (d) out[l.id] = d; });
+    return out;
+  };
   // Plan for one calendar month. Past months use the sheet's own month-by-month model (planHistory),
-  // because the budget's active/inactive flags describe today, not 2023-24 (flat rent, Hillend etc.).
+  // because the budget's active/inactive flags describe today, not 2023-24 (flat rent, Hillend etc.),
+  // with the budget's pay months for that year applied on top.
   M.planMonth = (s, ym) => memo('pm' + ym, () => {
     const h = s.planHistory && s.planHistory[ym];
-    if (h && ym < M.thisMonth()) return { inflow: h.inflow, outgoings: h.outgoings, net: h.inflow - h.outgoings, groups: h.groups, source: 'sheet' };
+    if (h && ym < M.thisMonth()){
+      const r = { inflow: h.inflow, outgoings: h.outgoings, groups: { ...h.groups }, source: 'sheet' };
+      Object.entries(timingShift(s, ym)).forEach(([id, d]) => {
+        const l = s.budget.lines.find(x => x.id === id);
+        if (l.kind === 'income' || l.kind === 'bonus') r.inflow += d;
+        else { if (M.OUT.includes(l.kind)) r.outgoings += d; r.groups[l.groupId] = (r.groups[l.groupId] || 0) + d; }
+      });
+      r.net = r.inflow - r.outgoings;
+      return r;
+    }
     const y = M.budgetYear(s, M.yearOf(ym));
     const r = { inflow: 0, outgoings: 0, groups: {}, source: 'budget' };
     s.budget.lines.forEach(l => {
       if (l.kind === 'off') return;
-      const v = M.lineInMonth(l, ym, M.amt(l, y));
+      const v = M.lineInMonth(l, ym, M.amt(l, y), y);
       if (l.kind === 'income' || l.kind === 'bonus') r.inflow += v;
       else if (M.OUT.includes(l.kind)){ r.outgoings += v; r.groups[l.groupId] = (r.groups[l.groupId] || 0) + v; }
       else if (l.kind === 'saving'){ r.groups[l.groupId] = (r.groups[l.groupId] || 0) + v; }
@@ -203,26 +227,35 @@
   // own rows (planHistory.lines); a month with only group totals returns {} so callers fall back.
   M.planMonthLines = (s, ym) => memo('pl' + ym, () => {
     const h = s.planHistory && s.planHistory[ym];
-    if (h && ym < M.thisMonth()) return h.lines || {};
+    if (h && ym < M.thisMonth()){
+      if (!h.lines) return {};
+      const r = { ...h.lines };
+      Object.entries(timingShift(s, ym)).forEach(([id, d]) => { const l = s.budget.lines.find(x => x.id === id); if (M.OUT.includes(l.kind) || l.kind === 'saving') r[id] = (r[id] || 0) + d; });
+      return r;
+    }
     const y = M.budgetYear(s, M.yearOf(ym)), r = {};
-    s.budget.lines.forEach(l => { if (M.OUT.includes(l.kind) || l.kind === 'saving'){ const v = M.lineInMonth(l, ym, M.amt(l, y)); if (v) r[l.id] = v; } });
+    s.budget.lines.forEach(l => { if (M.OUT.includes(l.kind) || l.kind === 'saving'){ const v = M.lineInMonth(l, ym, M.amt(l, y), y); if (v) r[l.id] = v; } });
     return r;
   });
   M.groupTotal = (s, gid, y, kinds) => s.budget.lines.filter(l => l.groupId === gid && (!kinds || kinds.includes(l.kind))).reduce((t, l) => t + M.amt(l, y), 0);
   M.spendGroups = s => s.budget.groups.filter(g => s.budget.lines.some(l => l.groupId === g.id && (M.OUT.includes(l.kind) || l.kind === 'saving')) || Object.values(s.planHistory || {}).some(h => h.groups && h.groups[g.id]));
 
   // ---------------- months of cover ----------------
-  // One definition everywhere: (liquid funds + fund adjustments) ÷ (planning-year fixed + living
-  // [+ extras] + cost adjustments). Same method as the sheet's "general costs" D57.
+  // One definition everywhere: (liquid funds [− slower money] + fund adjustments) ÷ (planning-year
+  // fixed + living [+ extras] + cost adjustments). Same method as the sheet's "general costs" D57.
+  // Slower money = accounts with the coverage tag (e.g. market-linked); only known where balances are per account.
+  M.slowAt = (s, snap) => { const c = s.coverage; return c.slowTagId && M.tag(s, c.slowTagId) ? M.tagTotalAt(s, c.slowTagId, snap) : null; };
+  M.slowLatest = s => { const d = M.detailSnaps(s); return d.length ? M.slowAt(s, d[d.length - 1]) || 0 : 0; };
   M.coverCosts = s => { const c = s.coverage, p = M.plan(s, s.settings.planYear); return p.fixed + p.living + (c.includeExtras ? p.extra : 0) + c.costAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0); };
   M.coverage = (s, opts = {}) => {
     const c = s.coverage, p = M.plan(s, s.settings.planYear), l = M.latest(s);
     const liquid = opts.liquid != null ? opts.liquid : (l ? l.liquid : 0);
+    const slow = M.slowLatest(s), slowOut = c.excludeSlow ? slow : 0;
     const fundAdj = c.fundAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0);
     const costAdj = c.costAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0);
     const costs = M.coverCosts(s) + (opts.extraMonthly || 0);
-    const funds = liquid + fundAdj + (opts.extraFunds || 0);
-    return { funds, costs, liquid, fundAdj, costAdj, months: costs > 0 ? funds / costs : null, plan: p };
+    const funds = liquid - slowOut + fundAdj + (opts.extraFunds || 0);
+    return { funds, costs, liquid, slow, slowOut, fundAdj, costAdj, months: costs > 0 ? funds / costs : null, plan: p };
   };
   M.ladder = s => {
     const d = M.detailSnaps(s); const snap = d[d.length - 1]; if (!snap) return null;
@@ -236,7 +269,16 @@
     return tiers.filter(t => t.v !== 0 || t.label !== 'Other');
   };
   // Same cost basis as the headline, so the last point matches it (fund adjustments only apply to today).
-  M.coverSeries = s => { const c = M.coverCosts(s), tl = M.timeline(s); const fa = s.coverage.fundAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0); return tl.map((p, i) => ({ m: p.m, v: c > 0 ? (p.liquid + (i === tl.length - 1 ? fa : 0)) / c : null })); };
+  // Slower money is taken out only from months with per-account balances (Aug 2026 on); carried months reuse the last.
+  M.coverSeries = s => {
+    const c = M.coverCosts(s), tl = M.timeline(s), ex = s.coverage.excludeSlow;
+    const fa = s.coverage.fundAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0);
+    let slow = 0;
+    return tl.map((p, i) => {
+      if (p.snap) slow = ex ? (M.slowAt(s, p.snap) || 0) : 0;
+      return { m: p.m, v: c > 0 ? (p.liquid - slow + (i === tl.length - 1 ? fa : 0)) / c : null };
+    });
+  };
 
   // ---------------- year summaries ----------------
   M.yearSummary = s => memo('ys', () => {

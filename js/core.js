@@ -145,7 +145,9 @@
     ['tags','accounts','snapshots','gaps','scenarios','events','upcoming','keyDates'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
     s.budget = s.budget || {}; ['years','groups','lines','salaries'].forEach(k => { if (!Array.isArray(s.budget[k])) s.budget[k] = []; });
     if (!s.budget.years.length) s.budget.years = [new Date().getFullYear()];
-    s.coverage = Object.assign({ includeExtras:false, fundAdjustments:[], costAdjustments:[], slowTagId: null }, s.coverage || {});
+    s.coverage = Object.assign({ includeExtras:false, fundAdjustments:[], costAdjustments:[], slowTagId: null, excludeSlow: false }, s.coverage || {});
+    // payMonths is per year ({ 2025: [3] }); v2.1-2.2 stored one list for every year, so spread it across them
+    s.budget.lines.forEach(l => { if (Array.isArray(l.payMonths)){ const pm = l.payMonths; l.payMonths = {}; if (pm.length) s.budget.years.forEach(y => { l.payMonths[y] = pm.slice(); }); } });
     s.house = Object.assign({ summary:[], building:[], furnishings:[], buildingPaid: null }, s.house || {});
     if (typeof s.notes !== 'string') s.notes = '';
     if (!s.planHistory || typeof s.planHistory !== 'object') s.planHistory = {};

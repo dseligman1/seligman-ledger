@@ -28,7 +28,8 @@ around **monthly snapshots**:
 | — | `coverage` (months-of-cover adjustments), `scenarios` (what-ifs), `events` (one-offs), `upcoming`, `notes` |
 | — | `snapshots[].updated` {accountId: date}: when each account was confirmed that month (check-ins over several days) |
 | — | `checklist[month]` {balances, change, oneoffs, budget}: manual ticks; balances auto-ticks when all accounts updated |
-| — | `budget.lines[].payMonths` [1–12]: lump the monthly-average amount into specific months (bonus, annual bills) |
+| — | `budget.lines[].payMonths` {year: [1–12]}: lump the monthly-average amount into specific months, set per year (v2.3; v2.1–2.2 stored one list for all years, which `L.normalise` copies to every year on load) |
+| — | `coverage.excludeSlow`: leave the "slower to get out" tag (`coverage.slowTagId`) out of months of cover |
 
 ## Architecture
 
@@ -51,8 +52,10 @@ also works from `file://`.
   if `ledger.json` is ever missing, unlock migrates `data.json` automatically.
 - **Sync**: last-write-wins; re-reads the `sha` before each PUT, retries once on conflict; pulls on
   focus/visibility if not mid-edit.
-- **Rendering**: each page is a pure function of state. Edits commit on `change` (blur), and re-render
-  waits until focus leaves the field so tapping between inputs isn't interrupted.
+- **Rendering**: each page is a pure function of state. Edits commit on `change` (blur) and the page
+  redraws straight away, putting focus (and the cursor) back on the field you're in, matched by its
+  data-* attributes. Only a text box with unsaved typing delays the redraw. (Before v2.3 any focused
+  input, including a just-clicked tick box or dropdown, delayed it, so Planner edits looked like they did nothing.)
 - **Generic editing**: `data-edit="field" data-coll="<path>" data-id data-f [data-type=num]` edits any list item;
   `data-act="add|del"` with `data-coll` adds or removes. Paths support `#id` segments, e.g. `scenarios.#s12.items`.
 
@@ -107,12 +110,16 @@ secondary columns below 560px (`.hide-sm`).
 
 ## Definitions (one place for each)
 
-- **Months of cover** = (liquid + fund adjustments) ÷ (planning-year fixed + living [+ extras] + cost
+- **Months of cover** = (liquid [− slower money] + fund adjustments) ÷ (planning-year fixed + living [+ extras] + cost
   adjustments). The chart over time uses the same denominator for every month; fund adjustments only
-  apply to the latest point, so the chart's last point equals the headline.
+  apply to the latest point, so the chart's last point equals the headline. "Slower money" = accounts
+  with the tag picked in Planner (default Market-linked); left out only when ticked, and in the chart only
+  from Aug 2026 (earlier months have no per-account split).
 - **Monthly change** = change in liquid funds. Transfers between own accounts net to zero; "What moved"
   pairs an outflow and inflow within 5% of each other (≥£500) and shows them as a transfer.
 - **Plan for a month**: `planHistory` for past months, the budget (with `payMonths`) for now and the future.
+  The sheet spread every line evenly, so past months also take the pay months set for that year: each such
+  line's monthly average moves into its pay months (`timingShift` in model.js); totals per year don't change.
 - **Projection**: actual for the last 12 or 24 months (solid), then 24 months dashed along (i) the 6-month
   average trend, (ii) the budget month by month, (iii) the budget plus active what-ifs. Coming up items are added to all three.
 
@@ -180,7 +187,13 @@ including a simulated 3 Nov multi-day check-in.
 v2.2: spend chart drill-down (tap a bar; one bucket → split by line), % of income line on a right axis,
 line-level plan history from the sheet, and push reminders via GitHub Actions.
 
+v2.3 (Dan's feedback): (i) bonus/income/cost pay months set per year (Budget → tap a line → When is it
+paid?), and applied to past months too; (ii) Planner edits redraw at once (the stale-redraw bug above);
+(iii) "Count as slower money" renamed "Money that's slower to get out", explained, and given a "Leave out
+of months of cover" tick box. File versions bumped to `?v=2.3.0` so phones fetch the new code.
+
 ### Next steps / ideas
+- Check on the iPhone that moving between boxes keeps the keyboard up after the redraw (desktop tested only).
 - Dan's feedback pass on the preview.
 - Wife's device: same token + PIN; first unlock pulls `ledger.json`.
 - Possible: per-account history before Aug 2026 could be recovered from old copies of the sheet, if any exist.

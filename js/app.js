@@ -56,19 +56,28 @@
     if (opts.modal) L.modal.refresh();
   };
   let pending = false;
-  const editing = () => { const a = document.activeElement; return a && $('page').contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
-  // Don't rebuild the page under someone's cursor: wait until they leave the field.
+  // Only a text box with unsaved typing blocks a redraw. Tick boxes, dropdowns and a box you've just
+  // tapped into redraw straight away (focus is put back), so totals update as soon as a change is saved.
+  const textField = a => a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color|file)$/.test(a.type)));
+  const editing = () => { const a = document.activeElement; return textField(a) && $('page').contains(a) && a.value !== a.defaultValue; };
   L.requestRender = () => { setTimeout(() => { if (editing()) pending = true; else L.render(); }, 0); };
   document.addEventListener('focusout', () => setTimeout(() => { if (pending && !editing()){ pending = false; L.render(); } }, 0));
 
+  // An element's identity across redraws: its data-* attributes (data-edit/coll/id/f/y…), or its id.
+  const fieldKey = el => el.id ? '#' + el.id : Object.entries(el.dataset).map(([k, v]) => k + '=' + v).sort().join('&');
   L.pages = {};
   L.render = function(){
     if (!L.S) return;
     const page = L.pages[UI.tab] || L.pages.overview;
-    const root = $('page');
+    const root = $('page'), a = document.activeElement;
+    const keep = a && a !== document.body && root.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) ? { key: fieldKey(a), tag: a.tagName, sel: textField(a) ? [a.selectionStart, a.selectionEnd] : null } : null;
     root.innerHTML = page.render();
     renderNav();
     L.mountCharts(root);
+    if (keep){
+      const el = [...root.querySelectorAll(keep.tag)].find(x => fieldKey(x) === keep.key);
+      if (el){ el.focus({ preventScroll: true }); if (keep.sel && keep.sel[0] != null) try { el.setSelectionRange(keep.sel[0], keep.sel[1]); } catch(e){} }
+    }
   };
   function renderNav(){
     const ci = M.checkin(L.S, M.thisMonth()), out = ci.total - ci.done, due = out > 0;

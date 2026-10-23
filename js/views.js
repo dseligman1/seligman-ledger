@@ -115,7 +115,7 @@
   L.specs.cover = () => {
     const s = S(), tl = ranged(), all = M.coverSeries(s), cs = all.slice(-tl.length), costs = M.coverCosts(s);
     return {
-      title: 'Months of cover over time', sub: `Liquid funds ÷ ${gbp(costs)} a month (${s.settings.planYear} plan, same as the headline)`,
+      title: 'Months of cover over time', sub: `Liquid funds${s.coverage.excludeSlow && s.coverage.slowTagId && M.tag(s, s.coverage.slowTagId) ? ` less ${esc(M.tag(s, s.coverage.slowTagId).name)} (from Aug 2026, when accounts were first logged one by one)` : ''} ÷ ${gbp(costs)} a month (${s.settings.planYear} plan, same as the headline)`,
       controls: () => seg('range', RANGES, UI.range),
       draw(el, big){ C.line(el, { labels: cs.map(p => p.m), fmtX: i => M.lbl(cs[i].m), height: big ? 360 : 250, yFmt: v => Math.round(v) + ' mo', zero: true,
         refs: [{ v: 6, label: '6 months' }, { v: 12, label: '12 months' }], series: [{ name: 'Months of cover', color: 'var(--accent)', values: cs.map(p => p.v), area: true }], aria: 'Months of cover over time',
@@ -570,7 +570,7 @@
   // ======================================================================
   // BUDGET
   // ======================================================================
-  const paidLbl = l => l.payMonths && l.payMonths.length ? `<span class="paid">Paid ${l.payMonths.map(m => M.MON[m - 1]).join(', ')}</span>` : '';
+  const paidLbl = (l, y) => { const pm = M.payMonths(l, y); return pm ? `<span class="paid">Paid ${pm.map(m => M.MON[m - 1]).join(', ')}</span>` : ''; };
   L.pages.budget = { render(){
     const s = S(), ys = M.years(s), cy = new Date().getFullYear();
     if (!ys.includes(UI.budgetYear)) UI.budgetYear = ys.includes(cy) ? cy : ys[ys.length - 1];
@@ -589,7 +589,7 @@
       const col = UI.collapsed['bg-' + g.id];
       const rows = visible.map(l => {
         const a = M.amt(l, y), pa = py ? M.amt(l, py) : null, dd = pa == null ? null : a - pa;
-        return `<div class="row b-row ${l.kind === 'off' ? 'off' : ''}"><div style="min-width:0"><div class="name" data-act="openLine" data-id="${l.id}">${esc(l.name)}<span class="kind ${l.kind}">${M.kindName(l.kind)}</span>${paidLbl(l)}</div>${l.note ? `<div class="meta">${esc(l.note)}</div>` : ''}</div>
+        return `<div class="row b-row ${l.kind === 'off' ? 'off' : ''}"><div style="min-width:0"><div class="name" data-act="openLine" data-id="${l.id}">${esc(l.name)}<span class="kind ${l.kind}">${M.kindName(l.kind)}</span>${paidLbl(l, y)}</div>${l.note ? `<div class="meta">${esc(l.note)}</div>` : ''}</div>
           <input class="inline-num" inputmode="decimal" value="${inputNum(Math.round(a * 100) / 100)}" data-edit="amt" data-id="${l.id}" aria-label="${esc(l.name)} ${y} monthly amount">
           <div class="dlt">${dd == null || Math.abs(dd) < 0.5 ? '' : `<span class="${cls(isIncome ? dd : -dd)}">${signed(dd)}</span>`}</div></div>`;
       }).join('');
@@ -634,26 +634,40 @@
   L.edits.amt = el => { const v = L.parseNum(el.value) ?? 0; L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id); l.amounts[UI.budgetYear] = v; }); };
   L.edits.lineYear = el => { const v = L.parseNum(el.value) ?? 0; L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id); l.amounts[el.dataset.y] = v; }); };
   L.acts.makePlanYear = el => L.commit(s => { s.settings.planYear = Number(el.dataset.y); });
-  L.acts.addYear = () => L.commit(s => { const ys = M.years(s), last = ys[ys.length - 1], ny = last + 1; s.budget.lines.forEach(l => { l.amounts[ny] = M.amt(l, last); }); (s.budget.salaries || []).forEach(x => { x.amounts[ny] = x.amounts[last]; }); s.budget.years.push(ny); UI.budgetYear = ny; L.saveUI(); L.toast(`${ny} added, copied from ${last}`); });
+  L.acts.addYear = () => L.commit(s => { const ys = M.years(s), last = ys[ys.length - 1], ny = last + 1; s.budget.lines.forEach(l => { l.amounts[ny] = M.amt(l, last); const pm = M.payMonths(l, last); if (pm) l.payMonths[ny] = pm.slice(); }); (s.budget.salaries || []).forEach(x => { x.amounts[ny] = x.amounts[last]; }); s.budget.years.push(ny); UI.budgetYear = ny; L.saveUI(); L.toast(`${ny} added, copied from ${last}`); });
   L.acts.addLine = el => { const id = L.uid('b'); L.commit(s => { const amounts = {}; s.budget.years.forEach(y => amounts[y] = 0); s.budget.lines.push({ id, groupId: el.dataset.g, name: 'New line', kind: 'living', amounts, note: '' }); }); openLine(id); };
   L.acts.addGroup = () => { const name = prompt('Name for the new group'); if (!name) return; L.commit(s => s.budget.groups.push({ id: L.uid('g'), name: name.trim() })); };
   L.acts.openLine = el => openLine(el.dataset.id);
-  L.acts.payMode = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id); l.payMonths = el.dataset.v === 'months' ? (l.payMonths && l.payMonths.length ? l.payMonths : [3]) : []; }, { modal: true });
-  L.acts.payMonth = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id), m = Number(el.dataset.m); l.payMonths = l.payMonths || []; const i = l.payMonths.indexOf(m); if (i >= 0){ if (l.payMonths.length > 1) l.payMonths.splice(i, 1); } else l.payMonths.push(m); l.payMonths.sort((a, b) => a - b); }, { modal: true });
+  // Pay months are set per year (data-y); the popup shows one year at a time (payYear).
+  let payYear = null;
+  const payObj = l => (l.payMonths && !Array.isArray(l.payMonths)) ? l.payMonths : (l.payMonths = {});
+  L.acts.payYear = el => { payYear = Number(el.dataset.y); L.modal.refresh(); };
+  L.acts.payMode = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id), o = payObj(l), y = el.dataset.y; if (el.dataset.v === 'months') o[y] = M.payMonths(l, y) || [3]; else delete o[y]; }, { modal: true });
+  L.acts.payMonth = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id), o = payObj(l), y = el.dataset.y, m = Number(el.dataset.m); const pm = o[y] = (o[y] || []).slice(); const i = pm.indexOf(m); if (i >= 0){ if (pm.length > 1) pm.splice(i, 1); } else pm.push(m); pm.sort((a, b) => a - b); }, { modal: true });
+  L.acts.payAll = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id), pm = M.payMonths(l, el.dataset.y); l.payMonths = {}; if (pm) s.budget.years.forEach(y => { l.payMonths[y] = pm.slice(); }); L.toast(`${el.dataset.y} timing copied to every year`); }, { modal: true });
+  const payDesc = pm => pm ? pm.map(m => M.MON[m - 1]).join(', ') : 'Every month';
   function openLine(id){
+    payYear = null;
     L.modal.open(() => {
       const s = S(), l = s.budget.lines.find(x => x.id === id); if (!l) return { title: 'Removed', body: '' };
-      const ys = M.years(s), pm = l.payMonths && l.payMonths.length ? l.payMonths : null;
+      const ys = M.years(s);
       const max = Math.max(1, ...ys.map(y => Math.abs(M.amt(l, y))));
-      const y = UI.budgetYear || s.settings.planYear, a = M.amt(l, y);
+      const y = UI.budgetYear || s.settings.planYear;
+      if (!ys.includes(payYear)) payYear = ys.includes(y) ? y : ys[ys.length - 1];
+      const py = payYear, pa = M.amt(l, py), pm = M.payMonths(l, py);
+      const same = ys.every(yy => payDesc(M.payMonths(l, yy)) === payDesc(pm));
       return {
         title: l.name, sub: `${M.kindName(l.kind)} · ${esc((s.budget.groups.find(g => g.id === l.groupId) || {}).name || '')}`, narrow: true,
         body: `<div class="section">${C.hbars(ys.map(yy => ({ label: String(yy) + (yy === s.settings.planYear ? ' ★' : ''), value: M.amt(l, yy), color: yy === y ? 'var(--accent)' : 'var(--s1)', display: gbp(M.amt(l, yy)) + '/mo' })), { max })}</div>
           <div class="section"><h3>Monthly amount by year</h3><div class="small muted" style="margin-bottom:8px">Enter the monthly average (the yearly amount ÷ 12), even if it's paid in one go. Then pick the month below.</div><div class="two">${ys.map(yy => `<div class="field"><label>${yy}</label><input class="input num" inputmode="decimal" value="${inputNum(Math.round(M.amt(l, yy) * 100) / 100)}" data-edit="lineYear" data-id="${id}" data-y="${yy}"></div>`).join('')}</div></div>
           <div class="section"><h3>When is it paid?</h3>
-            <div class="seg" style="margin-bottom:10px"><button class="${pm ? '' : 'on'}" data-act="payMode" data-id="${id}" data-v="monthly">Every month</button><button class="${pm ? 'on' : ''}" data-act="payMode" data-id="${id}" data-v="months">Specific months</button></div>
-            ${pm ? `<div class="mgrid">${M.MON.map((mn, i) => `<button class="${pm.includes(i + 1) ? 'on' : ''}" data-act="payMonth" data-id="${id}" data-m="${i + 1}">${mn}</button>`).join('')}</div>
-              <div class="note">In ${y} that's ${gbp(a * 12 / pm.length)} in ${pm.map(m => M.MON[m - 1]).join(', ')} and nothing in other months. Forecasts and "actual against plan" use these months; annual totals don't change.</div>` : '<div class="note">Spread evenly: the same amount every month.</div>'}</div>
+            <div class="small muted" style="margin-bottom:8px">Set this for each year. For example, a bonus spread across 2024 but paid in one go in March 2025.</div>
+            <div class="seg" role="group" aria-label="Year" style="margin-bottom:8px">${ys.map(yy => `<button class="${yy === py ? 'on' : ''}" data-act="payYear" data-y="${yy}">${yy}</button>`).join('')}</div>
+            <div class="seg" style="margin-bottom:10px"><button class="${pm ? '' : 'on'}" data-act="payMode" data-id="${id}" data-y="${py}" data-v="monthly">Every month</button><button class="${pm ? 'on' : ''}" data-act="payMode" data-id="${id}" data-y="${py}" data-v="months">Specific months</button></div>
+            ${pm ? `<div class="mgrid">${M.MON.map((mn, i) => `<button class="${pm.includes(i + 1) ? 'on' : ''}" data-act="payMonth" data-id="${id}" data-y="${py}" data-m="${i + 1}">${mn}</button>`).join('')}</div>
+              <div class="note">In ${py} that's ${gbp(pa * 12 / pm.length)} in ${payDesc(pm)} and nothing in other months. Forecasts and "actual against plan" use these months; annual totals don't change.</div>` : `<div class="note">In ${py}: spread evenly, ${gbp(pa)} every month.</div>`}
+            <div class="rows" style="margin-top:10px">${ys.map(yy => `<div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div class="name">${yy}</div><div class="right small ${yy === py ? '' : 'muted'}">${payDesc(M.payMonths(l, yy))}</div></div>`).join('')}</div>
+            ${same ? '' : `<button class="add-link" data-act="payAll" data-id="${id}" data-y="${py}">Use the ${py} timing for every year</button>`}</div>
           <div class="section"><h3>Details</h3>
             <div class="field"><label>Name</label><input class="input" value="${esc(l.name)}" data-edit="field" data-coll="budget.lines" data-id="${id}" data-f="name" data-refresh="1"></div>
             <div class="two"><div class="field"><label>Type</label><select class="input" data-edit="field" data-coll="budget.lines" data-id="${id}" data-f="kind" data-refresh="1">${M.KINDS.map(k => `<option value="${k.id}" ${l.kind === k.id ? 'selected' : ''}>${k.name}</option>`).join('')}</select></div>
@@ -710,7 +724,8 @@
     const ladder = M.ladder(s) || [];
     const ladCol = ['var(--s2)', 'var(--s1)', c.slowTagId && M.tag(s, c.slowTagId) ? tagColor(M.tag(s, c.slowTagId)) : 'var(--s3)'];
     let cum = 0;
-    const ladRows = ladder.map((t, i) => { cum += t.v; return `<div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div><span class="chip"><i class="sw" style="background:${ladCol[i]}"></i>${esc(t.label)}</span></div><div class="right"><b>${gbp(t.v)}</b> <span class="muted small">· ${cov.costs > 0 ? (t.v / cov.costs).toFixed(1) : '—'} mo${i ? `, ${(cum / cov.costs).toFixed(1)} cumulative` : ''}</span></div></div>`; }).join('');
+    const slowTag = c.slowTagId && M.tag(s, c.slowTagId);
+    const ladRows = ladder.map((t, i) => { cum += t.v; return `<div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div><span class="chip"><i class="sw" style="background:${ladCol[i]}"></i>${esc(t.label)}${i === 2 && slowTag && c.excludeSlow ? ' (not counted)' : ''}</span></div><div class="right"><b>${gbp(t.v)}</b> <span class="muted small">· ${cov.costs > 0 ? (t.v / cov.costs).toFixed(1) : '—'} mo${i ? `, ${(cum / cov.costs).toFixed(1)} cumulative` : ''}</span></div></div>`; }).join('');
     const rate = M.avgChange(s, 6) || 0; // scratchpad impact uses the recent trend
 
     const scns = s.scenarios.map(sc => {
@@ -733,10 +748,12 @@
       <div class="grid">
         <section class="card s6 accent"><div class="card-head"><div><h2>Months of cover</h2><div class="sub">How long liquid funds would pay planned costs with no income</div></div></div>
           <div class="hero-value">${L.fmt.months(cov.months)} <span style="font-size:20px;font-weight:500" class="ink2">months</span></div>
-          <div class="small ink2">${gbp(cov.funds)} available ÷ ${gbp(cov.costs)} a month (${cov.plan.year} fixed + living${c.includeExtras ? ' + extras' : ''}${cov.costAdj ? ', adjusted' : ''})</div>
-          <div style="margin:12px 0 4px"><label class="switch"><input type="checkbox" ${c.includeExtras ? 'checked' : ''} data-edit="field" data-coll="coverage" data-f="includeExtras">Include extras (holidays, eating out…)</label></div>
+          <div class="small ink2">${gbp(cov.funds)} available${cov.slowOut ? ` (${esc(slowTag.name)} left out)` : ''} ÷ ${gbp(cov.costs)} a month (${cov.plan.year} fixed + living${c.includeExtras ? ' + extras' : ''}${cov.costAdj ? ', adjusted' : ''})</div>
+          <div style="margin:12px 0 4px;display:flex;flex-direction:column;gap:6px"><label class="switch"><input type="checkbox" ${c.includeExtras ? 'checked' : ''} data-edit="field" data-coll="coverage" data-f="includeExtras">Include extras (holidays, eating out…)</label>
+            ${slowTag ? `<label class="switch"><input type="checkbox" ${c.excludeSlow ? 'checked' : ''} data-edit="field" data-coll="coverage" data-f="excludeSlow">Leave out ${esc(slowTag.name)} (${gbp(cov.slow)})</label>` : ''}</div>
           <div class="section" style="margin-top:16px"><h3 style="margin-bottom:8px">How quickly you can reach it</h3>${C.stack(ladder.map((t, i) => ({ label: t.label, value: t.v, color: ladCol[i] })))}<div class="rows" style="margin-top:6px">${ladRows}</div>
-            <div class="field" style="margin-top:8px"><label>Count as slower money</label><select class="input" data-edit="field" data-coll="coverage" data-f="slowTagId"><option value="">Nothing</option>${s.tags.map(t => `<option value="${t.id}" ${c.slowTagId === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div></div>
+            <div class="field" style="margin-top:8px"><label>Money that's slower to get out</label><select class="input" data-edit="field" data-coll="coverage" data-f="slowTagId"><option value="">None</option>${s.tags.map(t => `<option value="${t.id}" ${c.slowTagId === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+              <div class="small muted" style="margin-top:4px">Pick the tag for accounts you couldn't use straight away, such as investments that would need selling or fixed-term savings. They show as their own layer above, and you can leave them out of months of cover.</div></div></div>
           <div class="section" style="margin-top:14px"><h3 style="margin-bottom:6px">Adjustments to funds</h3><div class="edit-list">${c.fundAdjustments.map(x => editRow('coverage.fundAdjustments', x)).join('')}</div><button class="add-link" data-act="add" data-coll="coverage.fundAdjustments" data-p="f" data-tpl='{"label":"","amount":0}'>+ Add</button>
             <h3 style="margin:10px 0 6px">Adjustments to monthly costs</h3><div class="edit-list">${c.costAdjustments.map(x => editRow('coverage.costAdjustments', x)).join('')}</div><button class="add-link" data-act="add" data-coll="coverage.costAdjustments" data-p="c" data-tpl='{"label":"","amount":0}'>+ Add</button></div>
         </section>
