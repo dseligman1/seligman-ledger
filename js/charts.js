@@ -134,6 +134,7 @@
       pts.forEach(p => { g += `<circle cx="${x(p.i)}" cy="${y((p.s.top || p.s.values)[p.i])}" r="3.5" style="fill:${p.s.color};stroke:var(--surface);stroke-width:2"/>`;
         g += `<text x="${x(p.i) - 7}" y="${p.yy - 7}" text-anchor="end" class="dl">${esc(p.s.short || p.s.name)}</text>`; });
     }
+    if (o.markIdx != null && o.markIdx >= 0 && o.markIdx < n){ const mx = x(o.markIdx); g += `<line x1="${mx}" x2="${mx}" y1="${mt}" y2="${mt + ph}" style="stroke:var(--muted);stroke-dasharray:2 4"/><text x="${mx + 5}" y="${mt + 10}" class="dl" style="fill:var(--muted)">${esc(o.markLabel || 'Now')}</text>`; }
     g += `<line class="cross" x1="0" x2="0" y1="${mt}" y2="${mt + ph}" style="stroke:var(--axis);opacity:0"/>`;
     ser.forEach((s, k) => { g += `<circle class="hl hl${k}" r="4.5" cx="-10" cy="-10" style="fill:${s.color};stroke:var(--surface);stroke-width:2;opacity:0"/>`; });
     g += `<rect class="hit" x="${ml}" y="0" width="${pw}" height="${H}" fill="transparent"/></svg>`;
@@ -199,6 +200,43 @@
       const v = vals[i];
       const html = o.tipFmt ? o.tipFmt(i) : `<div class="th">${esc(fx(i))}</div>${C.tipRow('Value', v == null ? '—' : L.fmt.signed(v))}`;
       return { x: cx(i), y: v == null ? y0 : Math.min(y(v), y0), html };
+    });
+  };
+
+  // ---------- stacked bars (non-negative parts) ----------
+  // o: { labels, series:[{name,color,values}], height, fmtX, tipFmt, markIdx, markLabel }
+  C.stackBars = function(el, o){
+    const W = Math.max(260, Math.floor(el.clientWidth)), H = o.height || 240;
+    const n = o.labels.length; if (!n || !o.series.length){ el.innerHTML = '<div class="empty">Nothing selected</div>'; return; }
+    const tot = o.labels.map((_, i) => o.series.reduce((t, s) => t + Math.max(0, s.values[i] || 0), 0));
+    const tk = ticks(0, Math.max(1, ...tot), H < 240 ? 4 : 5), hi = tk[tk.length - 1];
+    const ml = Math.max(...tk.map(v => C.axisMoney(v).length)) * 6.6 + 10, mr = 8, mt = 14, mb = 24;
+    const pw = W - ml - mr, ph = H - mt - mb, band = pw / n;
+    const bw = Math.max(1.5, Math.min(30, band - Math.min(3, Math.max(1, band * 0.25))));
+    const cx = i => ml + band * i + band / 2, y = v => mt + (hi - v) / hi * ph;
+    const fx = o.fmtX || (i => o.labels[i]);
+    let g = svgOpen(W, H, `aria-label="${esc(o.aria || 'Stacked bars')}"`);
+    tk.forEach(v => { g += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" style="stroke:${v === 0 ? 'var(--axis)' : 'var(--grid)'}"/><text x="${ml - 8}" y="${y(v) + 4}" text-anchor="end">${esc(C.axisMoney(v))}</text>`; });
+    xLabelIdx(o.labels, pw, o.xGap || 56).forEach(i => { g += `<text x="${cx(i)}" y="${H - 6}" text-anchor="middle">${esc(fx(i))}</text>`; });
+    const gap = bw > 6 ? 1.5 : 0;
+    for (let i = 0; i < n; i++){
+      let base = 0; const parts = o.series.map(s => ({ s, v: Math.max(0, s.values[i] || 0) })).filter(p => p.v > 0);
+      parts.forEach((p, k) => {
+        const y0 = y(base), y1 = y(base + p.v); base += p.v;
+        const h = Math.max(0.5, y0 - y1 - (k < parts.length - 1 ? gap : 0)), top = y1 + (k < parts.length - 1 ? gap : 0) * 0;
+        const r = k === parts.length - 1 ? Math.min(3, bw / 2, h) : 0, left = cx(i) - bw / 2;
+        g += r ? `<path d="M${left},${y0}V${top + r}Q${left},${top} ${left + r},${top}H${left + bw - r}Q${left + bw},${top} ${left + bw},${top + r}V${y0}Z" style="fill:${p.s.color};opacity:${o.faded && o.faded(i) ? .55 : 1}"/>`
+              : `<rect x="${left}" y="${y0 - h}" width="${bw}" height="${h}" style="fill:${p.s.color};opacity:${o.faded && o.faded(i) ? .55 : 1}"/>`;
+      });
+    }
+    if (o.markIdx != null && o.markIdx >= 0 && o.markIdx < n){ const mx = ml + band * o.markIdx; g += `<line x1="${mx}" x2="${mx}" y1="${mt}" y2="${mt + ph}" style="stroke:var(--muted);stroke-dasharray:2 4"/><text x="${mx + 5}" y="${mt + 10}" class="dl" style="fill:var(--muted)">${esc(o.markLabel || 'Now')}</text>`; }
+    g += `<rect class="hl" x="0" y="${mt}" width="${band}" height="${ph}" style="fill:var(--ink);opacity:0;pointer-events:none"/><rect class="hit" x="${ml}" y="0" width="${pw}" height="${H}" fill="transparent"/></svg>`;
+    el.innerHTML = g;
+    const svg = el.querySelector('svg'), hl = svg.querySelector('.hl');
+    interact(el, svg, null, n, px => Math.floor((px - ml) / band), i => {
+      hl.setAttribute('x', ml + band * i); hl.style.opacity = 0.06;
+      const html = o.tipFmt ? o.tipFmt(i) : `<div class="th">${esc(fx(i))}</div>` + o.series.slice().reverse().map(s => s.values[i] ? C.tipRow(s.name, L.fmt.gbp(s.values[i]), s.color) : '').join('') + C.tipRow('Total', `<b>${L.fmt.gbp(tot[i])}</b>`);
+      return { x: cx(i), y: y(tot[i]), html };
     });
   };
 

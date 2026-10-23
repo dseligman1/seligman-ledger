@@ -13,82 +13,78 @@
   const chg = (n, suffix = '') => n == null ? '<span class="muted">—</span>' : `<span class="${cls(n)}">${signed(n)}</span>${suffix}`;
   const inputNum = n => (n == null || n === '') ? '' : (Number.isInteger(Math.round(Number(n) * 100) / 100) ? Number(n).toLocaleString('en-GB', { maximumFractionDigits: 0 }) : Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const BUCKET = { savings: { name: 'Savings', color: 'var(--s1)' }, current: { name: 'Current accounts', color: 'var(--s2)' }, asset: { name: 'Other assets', color: 'var(--s3)' } };
+  const ASSET_COL = ['var(--s3)', 'var(--s7)', 'var(--s5)', 'var(--s6)'];
   const RANGES = [['1y','1Y'],['2y','2Y'],['3y','3Y'],['all','All']];
-  const MEAS = { liquid: { name: 'Liquid funds', color: 'var(--accent)' }, savings: { name: 'Savings', color: 'var(--s1)' }, current: { name: 'Current accounts', color: 'var(--s2)' } };
+  const MEAS = [{ id: 'liquid', name: 'Liquid funds', color: 'var(--accent)' }, { id: 'savings', name: 'Savings', color: 'var(--s1)' }, { id: 'current', name: 'Current accounts', color: 'var(--s2)' }];
   const yearColor = y => `var(--s${(((y - 2023) % 8) + 8) % 8 + 1})`;
+  const groupColor = (s, gid) => `var(--s${(s.budget.groups.findIndex(g => g.id === gid) % 8) + 1})`;
   const pageHead = (title, sub, actions = '') => `<div class="page-head"><div><h1>${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${actions ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div>` : ''}</div>`;
   const plusBtn = (act, label, extra = '') => `<button class="btn" data-act="${act}" ${extra}>${L.icons.plus.replace('<svg', '<svg width="16" height="16"')}${label}</button>`;
+  const vis = L.vis;
+  const updLbl = (on, last) => on ? `<span class="upd ok">✓ Updated ${M.dateLbl(on, false)}</span>` : `<span class="upd due">Due${last ? ` · last updated ${M.dateLbl(last.date, false)}` : ''}</span>`;
 
   function ranged(){ const tl = M.timeline(S()); const n = { '1y': 13, '2y': 25, '3y': 37 }[UI.range]; return n ? tl.slice(-n) : tl; }
   const recordedCount = () => S().snapshots.filter(x => x.balances || x.totals).length;
 
-  function tipMonth(p, extra = ''){
+  function tipMonth(p){
     let h = `<div class="th">${M.lbl(p.m, 'long')}</div>`;
     h += C.tipRow('Savings', gbp(p.savings), 'var(--s1)') + C.tipRow('Current', gbp(p.current), 'var(--s2)') + C.tipRow('Liquid', `<b>${gbp(p.liquid)}</b>`);
     if (p.change != null) h += C.tipRow('Change', signed(p.change));
     if (p.oneOff) h += C.tipRow('One-offs', signed(p.oneOff));
-    if (p.est) h += `<div class="tn">Not recorded: filled in between neighbouring months</div>`;
-    return h + extra;
+    return h;
   }
   function monthTable(tl){
-    const rows = tl.slice().reverse().map(p => `<tr class="${p.est ? 'est' : ''}"><td>${M.lbl(p.m)}${p.est ? ' (est.)' : ''}</td><td class="r hide-sm">${gbp(p.savings)}</td><td class="r hide-sm">${gbp(p.current)}</td><td class="r">${gbp(p.liquid)}</td><td class="r ${cls(p.change)}">${p.change == null ? '—' : signed(p.change)}</td></tr>`).join('');
+    const rows = tl.slice().reverse().map(p => `<tr><td>${M.lbl(p.m)}</td><td class="r hide-sm">${gbp(p.savings)}</td><td class="r hide-sm">${gbp(p.current)}</td><td class="r">${gbp(p.liquid)}</td><td class="r ${cls(p.change)}">${p.change == null ? '—' : signed(p.change)}</td></tr>`).join('');
     return `<table class="tbl"><thead><tr><th>Month</th><th class="r hide-sm">Savings</th><th class="r hide-sm">Current</th><th class="r">Liquid</th><th class="r">Change</th></tr></thead><tbody>${rows}</tbody></table>`;
-  }
-  function gapsNote(){
-    const s = S(), g = s.gaps || [], tl = M.timeline(s);
-    const missing = tl.filter(p => p.est).map(p => p.m);
-    let h = '';
-    if (missing.length) h += `<b>Months not recorded:</b> ${missing.map(m => M.lbl(m, 'long')).join(', ')}. They're drawn dashed or hatched, with the change spread evenly across the gap.`;
-    g.forEach(x => { if (missing.includes(x.month)) h += `<br>· ${M.lbl(x.month, 'long')}: ${esc(x.why)}`; });
-    return h || 'Every month in this range was recorded.';
   }
 
   // ======================================================================
-  // CHART SPECS
+  // CHART SPECS  (pills = tick-box series toggles; the y-axis rescales to what's ticked)
   // ======================================================================
   L.specs.composition = () => {
     const tl = ranged();
+    const items = [{ id: 'savings', name: 'Savings', color: 'var(--s1)' }, { id: 'current', name: 'Current accounts', color: 'var(--s2)' }];
+    const on = items.filter(i => vis('composition', i.id));
     return {
-      title: 'Liquid funds', sub: 'Savings + current accounts at each month-end',
+      title: 'Liquid funds', sub: 'Savings + current accounts at each month-end', pills: items,
       controls: () => seg('range', RANGES, UI.range),
-      legend: () => C.legend([{ name: 'Savings', color: 'var(--s1)', box: true }, { name: 'Current accounts', color: 'var(--s2)', box: true }]),
-      draw(el, big){ C.line(el, { labels: tl.map(p => p.m), fmtX: i => M.lbl(tl[i].m), stacked: true, height: big ? 380 : (el.clientWidth > 560 ? 300 : 240), aria: 'Liquid funds stacked by savings and current',
-        series: [{ name: 'Savings', color: 'var(--s1)', values: tl.map(p => p.savings) }, { name: 'Current', color: 'var(--s2)', values: tl.map(p => p.current) }], tipFmt: i => tipMonth(tl[i]) }); },
-      table: () => monthTable(tl), notes: gapsNote,
+      draw(el, big){ C.line(el, { labels: tl.map(p => p.m), fmtX: i => M.lbl(tl[i].m), stacked: on.length > 1, height: big ? 380 : (el.clientWidth > 560 ? 300 : 240), aria: 'Liquid funds',
+        series: on.map(i => ({ name: i.name, color: i.color, values: tl.map(p => p[i.id]), area: on.length === 1 })), tipFmt: i => tipMonth(tl[i]) }); },
+      table: () => monthTable(tl),
     };
   };
 
   L.specs.balance = () => {
-    const tl = ranged(), k = UI.measure, mm = MEAS[k] || MEAS.liquid;
-    const vals = tl.map(p => p[k]), last = tl[tl.length - 1];
+    const tl = ranged(), last = tl[tl.length - 1], on = MEAS.filter(i => vis('balance', i.id));
     return {
-      title: mm.name + ' over time', sub: tl.length ? `${M.lbl(tl[0].m, 'long')} to ${M.lbl(last.m, 'long')}` : '',
-      controls: () => seg('range', RANGES, UI.range) + seg('measure', [['liquid','Liquid'],['savings','Savings'],['current','Current']], UI.measure),
-      draw(el, big){ C.line(el, { labels: tl.map(p => p.m), fmtX: i => M.lbl(tl[i].m), est: tl.map(p => p.est), height: big ? 380 : 270, aria: mm.name + ' over time',
-        series: [{ name: mm.name, color: mm.color, values: vals, area: true }], tipFmt: i => tipMonth(tl[i]) }); },
+      title: 'Balances over time', sub: tl.length ? `${M.lbl(tl[0].m, 'long')} to ${M.lbl(last.m, 'long')}` : '', pills: MEAS,
+      controls: () => seg('range', RANGES, UI.range),
+      draw(el, big){ C.line(el, { labels: tl.map(p => p.m), fmtX: i => M.lbl(tl[i].m), height: big ? 380 : 270, aria: 'Balances over time', endLabels: on.length > 1,
+        series: on.map(i => ({ name: i.name, short: i.name.split(' ')[0], color: i.color, values: tl.map(p => p[i.id]), area: on.length === 1 })), tipFmt: i => tipMonth(tl[i]) }); },
       readout(){
         if (!tl.length) return '';
-        const ago = M.point(S(), M.addM(last.m, -12));
+        const k = on[0].id, vals = tl.map(p => p[k]), ago = M.point(S(), M.addM(last.m, -12));
         let hi = 0, lo = 0; vals.forEach((v, i) => { if (v > vals[hi]) hi = i; if (v < vals[lo]) lo = i; });
-        return `<div class="readout"><span>Now <b>${gbp(last[k])}</b></span>${ago ? `<span>vs a year ago <b class="${cls(last[k] - ago[k])}">${signed(last[k] - ago[k])}</b></span>` : ''}<span>Over range <b class="${cls(last[k] - tl[0][k])}">${signed(last[k] - tl[0][k])}</b></span><span>Peak <b>${gbp(vals[hi])}</b> ${M.lbl(tl[hi].m)}</span><span>Low <b>${gbp(vals[lo])}</b> ${M.lbl(tl[lo].m)}</span></div>`;
+        return `<div class="readout"><span>${on[0].name} now <b>${gbp(last[k])}</b></span>${ago ? `<span>vs a year ago <b class="${cls(last[k] - ago[k])}">${signed(last[k] - ago[k])}</b></span>` : ''}<span>Over range <b class="${cls(last[k] - tl[0][k])}">${signed(last[k] - tl[0][k])}</b></span><span>Peak <b>${gbp(vals[hi])}</b> ${M.lbl(tl[hi].m)}</span><span>Low <b>${gbp(vals[lo])}</b> ${M.lbl(tl[lo].m)}</span></div>`;
       },
-      table: () => monthTable(tl), notes: gapsNote,
+      table: () => monthTable(tl),
     };
   };
 
   L.specs.change = () => {
     const s = S(), full = M.timeline(s), key = UI.strip ? 'underlying' : 'change';
     const allV = full.map(p => p[key]), allR = M.rolling(allV, UI.roll);
-    let n = ranged().length; if (n === full.length) n = full.length - 1; // first month has no change
+    let n = ranged().length; if (n === full.length) n = full.length - 1;
     const tl = full.slice(-n), v = allV.slice(-n), r = allR.slice(-n);
-    const hasEst = tl.some(p => p.changeEst), hasEvents = (s.events || []).length > 0;
+    const hasEvents = (s.events || []).length > 0;
+    const items = [{ id: 'bars', name: 'Monthly change', color: 'var(--pos)' }, { id: 'avg', name: UI.roll + '-month average', color: 'var(--accent)' }];
+    const showBars = vis('change', 'bars'), showAvg = vis('change', 'avg');
     const pv = v.filter(x => x != null);
     return {
-      title: 'Monthly change', sub: `How much liquid funds rose or fell each month · line = ${UI.roll}-month average`,
+      title: 'Monthly change', sub: `How much liquid funds rose (blue) or fell (red) each month`, pills: items,
       controls: () => seg('range', RANGES, UI.range) + seg('roll', [[3,'3-mo avg'],[6,'6-mo avg'],[12,'12-mo avg']], UI.roll) + (hasEvents ? `<label class="switch"><input type="checkbox" ${UI.strip ? 'checked' : ''} data-act="set" data-k="strip" data-v="${!UI.strip}">Strip one-offs</label>` : ''),
-      legend: () => C.legend([{ name: 'Up', color: 'var(--pos)', box: true }, { name: 'Down', color: 'var(--neg)', box: true }, { name: UI.roll + '-month average', color: 'var(--accent)' }].concat(hasEst ? [{ name: 'Hatched = month not recorded', color: 'var(--muted)', box: true }] : [])),
-      draw(el, big){ C.bars(el, { labels: tl.map(p => p.m), values: v, est: tl.map(p => p.changeEst), overlay: { name: 'avg', values: r, color: 'var(--accent)' }, height: big ? 360 : 230, fmtX: i => M.lbl(tl[i].m), aria: 'Monthly change in liquid funds',
-        tipFmt: i => { const p = tl[i]; return `<div class="th">${M.lbl(p.m, 'long')}</div>` + C.tipRow('Change', `<b>${signed(p.change)}</b>`) + (p.oneOff ? C.tipRow('One-offs', signed(p.oneOff)) + C.tipRow('Underlying', signed(p.underlying)) : '') + (r[i] != null ? C.tipRow(UI.roll + '-mo avg', signed(r[i]), 'var(--accent)') : '') + C.tipRow('Liquid after', gbp(p.liquid)) + (p.changeEst ? '<div class="tn">Spread across a month that wasn\'t recorded</div>' : ''); } }); },
+      draw(el, big){ C.bars(el, { labels: tl.map(p => p.m), values: showBars ? v : v.map(() => null), overlay: showAvg ? { name: 'avg', values: r, color: 'var(--accent)' } : null, clip: showBars, height: big ? 360 : 230, fmtX: i => M.lbl(tl[i].m), aria: 'Monthly change in liquid funds',
+        tipFmt: i => { const p = tl[i]; return `<div class="th">${M.lbl(p.m, 'long')}</div>` + C.tipRow('Change', `<b>${signed(p.change)}</b>`) + (p.oneOff ? C.tipRow('One-offs', signed(p.oneOff)) + C.tipRow('Underlying', signed(p.underlying)) : '') + (r[i] != null ? C.tipRow(UI.roll + '-mo avg', signed(r[i]), 'var(--accent)') : '') + C.tipRow('Liquid after', gbp(p.liquid)); } }); },
       readout(){
         if (!pv.length) return '';
         const avg = pv.reduce((a, b) => a + b, 0) / pv.length, up = pv.filter(x => x > 0).length;
@@ -96,39 +92,36 @@
         return `<div class="readout"><span>Average <b class="${cls(avg)}">${signed(avg)}</b>/mo</span><span>Up <b>${up}</b> of ${pv.length} months</span><span>Best <b class="pos">${signed(v[bi])}</b> ${M.lbl(tl[bi].m)}</span><span>Worst <b class="neg">${signed(v[wi])}</b> ${M.lbl(tl[wi].m)}</span></div>`;
       },
       table: () => monthTable(tl),
-      notes: () => 'Very large months (like the 2024 house move) are capped so normal months stay readable; their real value is printed on the bar and in the table. ' + gapsNote(),
+      notes: () => 'Very large months (like the 2024 house move) are capped so normal months stay readable. Their real value is printed on the bar and in the table. Transfers between your own accounts net to zero here.',
     };
   };
 
   L.specs.yoy = () => {
-    const tl = M.timeline(S()), years = [...new Set(tl.map(p => M.yearOf(p.m)))].slice(-4);
-    const ser = years.map(y => {
-      const pts = Array.from({ length: 12 }, (_, m) => tl.find(q => q.m === `${y}-${pad(m + 1)}`));
-      return { name: String(y), short: String(y), color: yearColor(y), values: pts.map(p => p ? p.liquid : null), est: pts.map(p => p ? p.est : false), pts };
-    });
+    const tl = M.timeline(S()), years = [...new Set(tl.map(p => M.yearOf(p.m)))];
+    const items = years.map(y => ({ id: String(y), name: String(y), color: yearColor(y) }));
+    const ser = years.filter(y => vis('yoy', y)).map(y => ({ name: String(y), short: String(y), color: yearColor(y), values: Array.from({ length: 12 }, (_, m) => { const p = tl.find(q => q.m === `${y}-${pad(m + 1)}`); return p ? p.liquid : null; }) }));
     return {
-      title: 'Year against year', sub: 'Liquid funds by calendar month, one line per year',
-      legend: () => C.legend(ser.map(x => ({ name: x.name, color: x.color }))),
+      title: 'Year against year', sub: 'Liquid funds by calendar month, one line per year', pills: items,
       draw(el, big){ C.line(el, { labels: M.MON, height: big ? 380 : 260, series: ser, endLabels: true, xGap: 34, aria: 'Liquid funds by month, per year',
-        tipFmt: i => `<div class="th">${M.MON[i]}</div>` + ser.map(x => x.values[i] == null ? '' : C.tipRow(x.name, gbp(x.values[i]) + (x.est[i] ? ' (est.)' : ''), x.color)).join('') }); },
+        tipFmt: i => `<div class="th">${M.MON[i]}</div>` + ser.map(x => x.values[i] == null ? '' : C.tipRow(x.name, gbp(x.values[i]), x.color)).join('') }); },
       table: () => yearTable(),
     };
   };
   function yearTable(){
     const ys = M.yearSummary(S()).slice().reverse();
-    return `<table class="tbl"><thead><tr><th>Year</th><th class="r">Change</th><th class="r">Avg / mo</th><th class="r hide-sm">Best month</th><th class="r hide-sm">Worst month</th></tr></thead><tbody>${ys.map(y => `<tr><td>${y.year}${y.partial ? ` <span class="muted tiny">${M.lbl(y.firstM, 'mon')}–${M.lbl(y.endM, 'mon')}</span>` : ''}</td><td class="r ${cls(y.change)}">${signed(y.change)}</td><td class="r ${cls(y.avg)}">${signed(y.avg)}</td><td class="r hide-sm">${y.best ? signed(y.best.underlying) + ' <span class="muted tiny">' + M.lbl(y.best.m, 'mon') + '</span>' : '—'}</td><td class="r hide-sm">${y.worst ? signed(y.worst.underlying) + ' <span class="muted tiny">' + M.lbl(y.worst.m, 'mon') + '</span>' : '—'}</td></tr>`).join('')}</tbody></table>`;
+    return `<table class="tbl"><thead><tr><th>Year</th><th class="r hide-sm">Start</th><th class="r hide-sm">End</th><th class="r">Change</th><th class="r">Avg / mo</th><th class="r hide-sm">Best month</th><th class="r hide-sm">Worst month</th></tr></thead><tbody>${ys.map(y => `<tr><td>${y.year}${y.partial ? ` <span class="muted tiny">${M.lbl(y.firstM, 'mon')}–${M.lbl(y.endM, 'mon')}</span>` : ''}</td><td class="r hide-sm">${gbp(y.start)}</td><td class="r hide-sm">${gbp(y.end)}</td><td class="r ${cls(y.change)}">${signed(y.change)}</td><td class="r ${cls(y.avg)}">${signed(y.avg)}</td><td class="r hide-sm">${y.best ? signed(y.best.underlying) + ' <span class="muted tiny">' + M.lbl(y.best.m, 'mon') + '</span>' : '—'}</td><td class="r hide-sm">${y.worst ? signed(y.worst.underlying) + ' <span class="muted tiny">' + M.lbl(y.worst.m, 'mon') + '</span>' : '—'}</td></tr>`).join('')}</tbody></table>`;
   }
 
   L.specs.cover = () => {
-    const s = S(), tl = ranged(), all = M.coverSeries(s), cs = all.slice(-tl.length);
+    const s = S(), tl = ranged(), all = M.coverSeries(s), cs = all.slice(-tl.length), costs = M.coverCosts(s);
     return {
-      title: 'Months of cover over time', sub: 'Liquid funds ÷ that year\'s planned fixed + living costs',
+      title: 'Months of cover over time', sub: `Liquid funds ÷ ${gbp(costs)} a month (${s.settings.planYear} plan, same as the headline)`,
       controls: () => seg('range', RANGES, UI.range),
-      draw(el, big){ C.line(el, { labels: cs.map(p => p.m), fmtX: i => M.lbl(cs[i].m), est: cs.map(p => p.est), height: big ? 360 : 250, yFmt: v => Math.round(v) + ' mo', zero: true,
+      draw(el, big){ C.line(el, { labels: cs.map(p => p.m), fmtX: i => M.lbl(cs[i].m), height: big ? 360 : 250, yFmt: v => Math.round(v) + ' mo', zero: true,
         refs: [{ v: 6, label: '6 months' }, { v: 12, label: '12 months' }], series: [{ name: 'Months of cover', color: 'var(--accent)', values: cs.map(p => p.v), area: true }], aria: 'Months of cover over time',
-        tipFmt: i => { const p = tl[i], pl = M.plan(s, M.yearOf(p.m)); return `<div class="th">${M.lbl(p.m, 'long')}</div>` + C.tipRow('Cover', `<b>${cs[i].v == null ? '—' : cs[i].v.toFixed(1) + ' months'}</b>`) + C.tipRow('Liquid', gbp(p.liquid)) + C.tipRow(pl.year + ' costs / mo', gbp(pl.fixed + pl.living)); } }); },
-      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="r">Liquid</th><th class="r hide-sm">Costs / mo</th><th class="r">Cover</th></tr></thead><tbody>${tl.slice().reverse().map((p, k) => { const c = cs[cs.length - 1 - k], pl = M.plan(s, M.yearOf(p.m)); return `<tr class="${p.est ? 'est' : ''}"><td>${M.lbl(p.m)}</td><td class="r">${gbp(p.liquid)}</td><td class="r hide-sm">${gbp(pl.fixed + pl.living)}</td><td class="r">${c.v == null ? '—' : c.v.toFixed(1)}</td></tr>`; }).join('')}</tbody></table>`,
-      notes: () => 'Uses each year\'s budget, so the line reflects how costs changed (e.g. moving house, nursery). The headline number on Planner also adds your adjustments.',
+        tipFmt: i => `<div class="th">${M.lbl(tl[i].m, 'long')}</div>` + C.tipRow('Cover', `<b>${cs[i].v == null ? '—' : cs[i].v.toFixed(1) + ' months'}</b>`) + C.tipRow('Liquid', gbp(tl[i].liquid)) }); },
+      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="r">Liquid</th><th class="r">Cover</th></tr></thead><tbody>${tl.slice().reverse().map((p, k) => { const c = cs[cs.length - 1 - k]; return `<tr><td>${M.lbl(p.m)}</td><td class="r">${gbp(p.liquid)}</td><td class="r">${c.v == null ? '—' : c.v.toFixed(1)}</td></tr>`; }).join('')}</tbody></table>`,
+      notes: () => 'Every month uses the same yardstick as the Planner headline: your planning-year fixed + living costs (plus extras if you switch them on) and your cost adjustments. Fund adjustments ("coming in", "still owed") only apply to today, so the last point matches the headline exactly.',
     };
   };
 
@@ -136,39 +129,62 @@
     const s = S(), tl = M.timeline(s), years = [...new Set(tl.map(p => M.yearOf(p.m)))];
     const y = years.includes(UI.planView) ? UI.planView : years[years.length - 1];
     const prevDec = M.point(s, `${y - 1}-12`), firstPt = tl.find(p => M.yearOf(p.m) === y);
-    const base = prevDec ? prevDec.liquid : (firstPt ? firstPt.liquid : 0);
-    const pl = M.plan(s, y);
-    const pts = Array.from({ length: 12 }, (_, m) => M.point(s, `${y}-${pad(m + 1)}`));
-    const actual = pts.map(p => p ? p.liquid - base : null);
-    const offset = prevDec ? 1 : 0, startIdx = prevDec ? 0 : Math.max(0, pts.findIndex(p => p));
-    const planV = Array.from({ length: 12 }, (_, m) => m < startIdx ? null : pl.net * (m - startIdx + offset));
+    const startIdx = prevDec ? 0 : M.monthNum(firstPt.m) - 1;
+    const base = prevDec ? prevDec.liquid : firstPt.liquid;
+    const key = UI.strip ? 'underlying' : 'change';
+    const actual = [], plan = []; let a = 0, p = 0;
+    for (let m = 0; m < 12; m++){
+      const ym = `${y}-${pad(m + 1)}`, pt = M.point(s, ym);
+      if (m < startIdx){ actual.push(null); plan.push(null); continue; }
+      if (m === startIdx && !prevDec){ actual.push(0); plan.push(0); continue; }
+      p += M.planMonth(s, ym).net; plan.push(p);
+      if (pt && pt.change != null){ a += pt[key]; actual.push(a); } else actual.push(null);
+    }
+    const items = [{ id: 'actual', name: 'Actual', color: 'var(--s1)' }, { id: 'plan', name: 'Plan', color: 'var(--muted)' }];
+    const ser = [];
+    if (vis('plan', 'actual')) ser.push({ name: 'Actual', color: 'var(--s1)', values: actual, width: 2.4 });
+    if (vis('plan', 'plan')) ser.push({ name: 'Plan', color: 'var(--muted)', values: plan, dash: true });
     let li = -1; actual.forEach((v, i) => { if (v != null) li = i; });
+    const src = M.planMonth(s, `${y}-01`).source;
     return {
-      title: 'Actual against plan', sub: `${y}: change in liquid funds since ${prevDec ? 'December ' + (y - 1) : M.lbl(firstPt.m, 'long')} vs the budget's ${signed(pl.net)}/mo`,
+      title: 'Actual against plan', sub: `${y}: cumulative change in liquid funds since ${prevDec ? 'December ' + (y - 1) : M.lbl(firstPt.m, 'long')}, against the ${src === 'sheet' ? 'sheet\'s month-by-month plan' : 'budget'}`, pills: items,
       controls: () => seg('planView', years.map(v => [v, v]), y),
-      legend: () => C.legend([{ name: 'Actual', color: 'var(--s1)' }, { name: 'Plan', color: 'var(--muted)', dash: true }]),
-      draw(el, big){ C.line(el, { labels: M.MON, height: big ? 360 : 250, zero: true, xGap: 34, est: pts.map(p => p ? p.est : false), aria: 'Actual change vs plan',
-        series: [{ name: 'Actual', color: 'var(--s1)', values: actual, width: 2.4 }, { name: 'Plan', color: 'var(--muted)', values: planV, dash: true }],
-        tipFmt: i => `<div class="th">${M.MON[i]} ${y}</div>` + C.tipRow('Actual', actual[i] == null ? '—' : signed(actual[i]), 'var(--s1)') + C.tipRow('Plan', planV[i] == null ? '—' : signed(planV[i]), 'var(--muted)') + (actual[i] != null && planV[i] != null ? C.tipRow('Gap', `<b class="${cls(actual[i] - planV[i])}">${signed(actual[i] - planV[i])}</b>`) : '') }); },
+      draw(el, big){ C.line(el, { labels: M.MON, height: big ? 360 : 250, zero: true, xGap: 34, aria: 'Actual change vs plan', series: ser,
+        tipFmt: i => `<div class="th">${M.MON[i]} ${y}</div>` + C.tipRow('Actual', actual[i] == null ? '—' : signed(actual[i]), 'var(--s1)') + C.tipRow('Plan', plan[i] == null ? '—' : signed(plan[i]), 'var(--muted)') + (actual[i] != null && plan[i] != null ? C.tipRow('Gap', `<b class="${cls(actual[i] - plan[i])}">${signed(actual[i] - plan[i])}</b>`) : '') + C.tipRow('Plan that month', signed(M.planMonth(s, `${y}-${pad(i + 1)}`).net)) }); },
       readout(){
         if (li < 0) return '';
-        const gap = actual[li] - planV[li], months = li - startIdx + offset;
-        const implied = months > 0 ? pl.inflow - actual[li] / months : null;
-        return `<div class="readout"><span>By ${M.MON[li]}: actual <b class="${cls(actual[li])}">${signed(actual[li])}</b></span><span>Plan <b>${signed(planV[li])}</b></span><span><b class="${cls(gap)}">${gap >= 0 ? 'Ahead' : 'Behind'} by ${gbp(Math.abs(gap))}</b></span>${implied != null ? `<span>Implied spend ~<b>${gbp(implied)}</b>/mo vs ${gbp(pl.outgoings)} planned</span>` : ''}</div>`;
+        const gap = actual[li] - plan[li];
+        return `<div class="readout"><span>By ${M.MON[li]}: actual <b class="${cls(actual[li])}">${signed(actual[li])}</b></span><span>Plan <b>${signed(plan[li])}</b></span><span><b class="${cls(gap)}">${gap >= 0 ? 'Ahead' : 'Behind'} by ${gbp(Math.abs(gap))}</b></span></div>`;
       },
-      notes: () => '"Implied spend" assumes income arrived as budgeted, and includes any investment growth in HL, Morgan Stanley and Nutmeg, so treat it as a rough guide (Inferred).',
+      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="r">Plan that month</th><th class="r">Actual that month</th><th class="r">Gap so far</th></tr></thead><tbody>${M.MON.map((mn, i) => { const ym = `${y}-${pad(i + 1)}`, pt = M.point(s, ym), pm = M.planMonth(s, ym); if (plan[i] == null) return ''; return `<tr><td>${mn}</td><td class="r">${signed(pm.net)}</td><td class="r ${pt ? cls(pt[key]) : ''}">${pt && pt.change != null ? signed(pt[key]) : '—'}</td><td class="r ${actual[i] != null ? cls(actual[i] - plan[i]) : ''}">${actual[i] != null ? signed(actual[i] - plan[i]) : '—'}</td></tr>`; }).join('')}</tbody></table>`,
+      notes: () => 'Past months use the plan your sheet had for that month (Cash Flow rows 85 and 87), which already included the flat rent, the house move and other one-offs you planned for. From this month on, the plan comes from the Budget tab, including any bonus months you set there.',
     };
   };
 
   L.specs.tags = () => {
-    const s = S(), snaps = M.detailSnaps(s), tags = s.tags;
-    const ser = tags.map(t => ({ name: t.name, color: tagColor(t), values: snaps.map(x => M.tagTotalAt(s, t.id, x)) }));
+    const s = S(), snaps = M.detailSnaps(s);
+    const items = s.tags.map(t => ({ id: t.id, name: t.name, color: tagColor(t) }));
+    const ser = s.tags.filter(t => vis('tags', t.id)).map(t => ({ name: t.name, color: tagColor(t), values: snaps.map(x => M.tagTotalAt(s, t.id, x)) }));
     return {
-      title: 'Your buckets over time', sub: 'Totals per tag. Per-account detail starts ' + (snaps[0] ? M.lbl(snaps[0].month, 'long') : '—') + ', and each monthly log adds a point',
-      legend: () => C.legend(ser.map(x => ({ name: x.name, color: x.color }))),
-      draw(el, big){ if (!tags.length){ el.innerHTML = '<div class="empty">Add tags in Accounts to see buckets here.</div>'; return; }
+      title: 'Your buckets over time', sub: 'Totals per tag. Per-account detail starts ' + (snaps[0] ? M.lbl(snaps[0].month, 'long') : '—') + ' and fills in with every check-in', pills: items,
+      draw(el, big){ if (!s.tags.length){ el.innerHTML = '<div class="empty">Add tags in Accounts to see buckets here.</div>'; return; }
         C.line(el, { labels: snaps.map(x => x.month), fmtX: i => M.lbl(snaps[i].month), height: big ? 360 : 250, series: ser, endLabels: ser.length <= 4, aria: 'Tag totals over time' }); },
-      table: () => `<table class="tbl"><thead><tr><th>Tag</th><th class="r hide-sm">${snaps.length > 1 ? M.lbl(snaps[snaps.length - 2].month) : ''}</th><th class="r">${snaps.length ? M.lbl(snaps[snaps.length - 1].month) : ''}</th><th class="r">Change</th></tr></thead><tbody>${ser.map(x => { const a = x.values[x.values.length - 2], b = x.values[x.values.length - 1]; return `<tr><td>${esc(x.name)}</td><td class="r hide-sm">${gbp(a)}</td><td class="r">${gbp(b)}</td><td class="r ${cls(b - a)}">${a == null ? '—' : signed(b - a)}</td></tr>`; }).join('')}</tbody></table>`,
+      table: () => `<table class="tbl"><thead><tr><th>Tag</th><th class="r hide-sm">${snaps.length > 1 ? M.lbl(snaps[snaps.length - 2].month) : ''}</th><th class="r">${snaps.length ? M.lbl(snaps[snaps.length - 1].month) : ''}</th><th class="r">Change</th></tr></thead><tbody>${s.tags.map(t => { const v = snaps.map(x => M.tagTotalAt(s, t.id, x)); const a = v[v.length - 2], b = v[v.length - 1]; return `<tr><td>${esc(t.name)}</td><td class="r hide-sm">${gbp(a)}</td><td class="r">${gbp(b)}</td><td class="r ${cls(b - a)}">${a == null ? '—' : signed(b - a)}</td></tr>`; }).join('')}</tbody></table>`,
+    };
+  };
+
+  L.specs.networth = () => {
+    const s = S(), tl = ranged(), assets = s.accounts.filter(a => a.bucket === 'asset' && !a.archived);
+    const items = [{ id: 'liquid', name: 'Liquid funds', color: 'var(--accent)' }].concat(assets.map((a, i) => ({ id: a.id, name: a.name, color: ASSET_COL[i % 4] })));
+    const on = items.filter(i => vis('networth', i.id));
+    const val = (p, id) => id === 'liquid' ? p.liquid : (p.assetsBy[id] || 0);
+    return {
+      title: 'Net worth', sub: 'Liquid funds plus other assets (house and shares are estimates from the sheet)', pills: items,
+      controls: () => seg('range', RANGES, UI.range),
+      draw(el, big){ C.line(el, { labels: tl.map(p => p.m), fmtX: i => M.lbl(tl[i].m), stacked: on.length > 1, height: big ? 380 : 270, aria: 'Net worth over time',
+        series: on.map(i => ({ name: i.name, color: i.color, values: tl.map(p => val(p, i.id)), area: on.length === 1 })),
+        tipFmt: i => `<div class="th">${M.lbl(tl[i].m, 'long')}</div>` + on.map(it => C.tipRow(it.name, gbp(val(tl[i], it.id)), it.color)).join('') + (on.length > 1 ? C.tipRow('Total', `<b>${gbp(on.reduce((t, it) => t + val(tl[i], it.id), 0))}</b>`) : '') }); },
+      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="r hide-sm">Liquid</th>${assets.map(a => `<th class="r hide-sm">${esc(a.name)}</th>`).join('')}<th class="r">Net worth</th></tr></thead><tbody>${tl.slice().reverse().map(p => `<tr><td>${M.lbl(p.m)}</td><td class="r hide-sm">${gbp(p.liquid)}</td>${assets.map(a => `<td class="r hide-sm">${gbp(p.assetsBy[a.id] || 0)}</td>`).join('')}<td class="r">${gbp(p.netWorth)}</td></tr>`).join('')}</tbody></table>`,
     };
   };
 
@@ -177,14 +193,14 @@
     return {
       title: a.name, sub: b.name + (a.estimate ? ' · estimate' : ''),
       draw(el, big){ C.line(el, { labels: ser.map(x => x.m), fmtX: i => M.lbl(ser[i].m), height: big ? 300 : 220, series: [{ name: a.name, color: b.color, values: ser.map(x => x.v), area: true }], aria: a.name + ' balance over time' }); },
-      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="hide-sm">Logged</th><th class="r">Balance</th><th class="r">Change</th></tr></thead><tbody>${ser.slice().reverse().map((x, k, arr) => `<tr><td>${M.lbl(x.m, 'long')}</td><td class="hide-sm muted">${x.date ? M.dateLbl(x.date) : '—'}</td><td class="r">${gbp(x.v)}</td><td class="r ${arr[k + 1] ? cls(x.v - arr[k + 1].v) : ''}">${arr[k + 1] ? signed(x.v - arr[k + 1].v) : '—'}</td></tr>`).join('')}</tbody></table>`,
+      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="hide-sm">Updated</th><th class="r">Balance</th><th class="r">Change</th></tr></thead><tbody>${ser.slice().reverse().map((x, k, arr) => `<tr><td>${M.lbl(x.m, 'long')}</td><td class="hide-sm muted">${x.date ? M.dateLbl(x.date) : '—'}</td><td class="r">${gbp(x.v)}</td><td class="r ${arr[k + 1] ? cls(x.v - arr[k + 1].v) : ''}">${arr[k + 1] ? signed(x.v - arr[k + 1].v) : '—'}</td></tr>`).join('')}</tbody></table>`,
     };
   };
 
   L.specs.waterfall = () => {
     const s = S(), y = UI.budgetYear || s.settings.planYear, p = M.plan(s, y);
     return {
-      title: `${y} monthly plan`, sub: 'What\'s left after each layer of cost',
+      title: `${y} monthly plan`, sub: 'What\'s left after each layer of cost (monthly average)',
       draw(el, big){ C.waterfall(el, [
         { label: 'Income', value: p.income, total: true, color: 'var(--pos)' }, { label: 'Fixed', value: -p.fixed }, { label: 'Living', value: -p.living },
         { label: 'Extras', value: -p.extra }, { label: 'Bonus', value: p.bonus }, { label: 'Net', value: p.net, total: true, color: p.net >= 0 ? 'var(--pos)' : 'var(--neg)' },
@@ -194,33 +210,74 @@
     };
   };
 
-  L.specs.projection = () => {
-    const s = S(), pr = M.projection(s, { rate: UI.projRate, months: 24 });
-    if (!pr) return { title: 'Projection', draw(el){ el.innerHTML = '<div class="empty">Log some balances first.</div>'; } };
-    const ser = [{ name: 'Current path', color: 'var(--s1)', values: pr.base }];
-    if (pr.hasScenarios) ser.push({ name: 'With what-ifs', color: 'var(--s2)', values: pr.withS });
+  // Planned spend per month by group: the sheet's plan for past months, the Budget tab from now on.
+  L.specs.spend = () => {
+    const s = S(), groups = M.spendGroups(s), now = M.thisMonth();
+    const lastY = M.years(s)[M.years(s).length - 1], end = `${lastY}-12`;
+    const firstPlan = Object.keys(s.planHistory || {}).sort()[0] || now;
+    const start = UI.spendRange === 'all' ? firstPlan : M.addM(now, UI.spendRange === '1y' ? -12 : -24);
+    const labels = []; for (let m = start < firstPlan && s.planHistory && Object.keys(s.planHistory).length ? firstPlan : start; m <= end; m = M.addM(m, 1)) labels.push(m);
+    const items = groups.map(g => ({ id: g.id, name: g.name, color: groupColor(s, g.id) }));
+    const on = items.filter(i => vis('spend', i.id));
+    const ser = on.map(i => ({ name: i.name, color: i.color, values: labels.map(m => M.planMonth(s, m).groups[i.id] || 0) }));
+    const nowIdx = labels.indexOf(now);
     return {
-      title: 'Where liquid funds are heading', sub: `Assumes ${signed(pr.rate)}/mo (${UI.projRate === 'plan' ? s.settings.planYear + ' budget' : '6-month average'})${pr.hasUpcoming ? ' plus Coming up items' : ''}`,
-      controls: () => seg('projRate', [['trend','Recent trend'],['plan','Budget plan']], UI.projRate),
-      legend: () => ser.length > 1 ? C.legend(ser.map(x => ({ name: x.name, color: x.color }))) : '',
-      draw(el, big){ C.line(el, { labels: pr.labels, fmtX: i => M.lbl(pr.labels[i]), height: big ? 360 : 250, series: ser, endLabels: ser.length > 1, aria: 'Projected liquid funds',
-        tipFmt: i => `<div class="th">${M.lbl(pr.labels[i], 'long')}</div>` + ser.map(x => C.tipRow(x.name, gbp(x.values[i]), x.color)).join('') }); },
-      readout: () => `<div class="readout"><span>In 12 months <b>${gbp(pr.base[12])}</b></span><span>In 24 months <b>${gbp(pr.base[24])}</b></span>${pr.hasScenarios ? `<span>With what-ifs at 12 months <b class="${cls(pr.withS[12] - pr.base[12])}">${signed(pr.withS[12] - pr.base[12])}</b></span>` : ''}</div>`,
-      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="r">Current path</th>${pr.hasScenarios ? '<th class="r">With what-ifs</th>' : ''}</tr></thead><tbody>${pr.labels.map((m, i) => i % 3 ? '' : `<tr><td>${M.lbl(m, 'long')}</td><td class="r">${gbp(pr.base[i])}</td>${pr.hasScenarios ? `<td class="r">${gbp(pr.withS[i])}</td>` : ''}</tr>`).join('')}</tbody></table>`,
+      title: 'Where the money goes', sub: 'Planned spend each month by group. Before today it\'s what the sheet planned at the time; from today it\'s the Budget tab', pills: items,
+      controls: () => seg('spendRange', [['1y','Last 12 mo + ahead'],['2y','Last 24 mo + ahead'],['all','All']], UI.spendRange),
+      draw(el, big){ C.stackBars(el, { labels, series: ser, height: big ? 380 : 280, fmtX: i => M.lbl(labels[i]), markIdx: nowIdx, markLabel: 'Now', faded: i => labels[i] > now, aria: 'Planned spend by group per month',
+        tipFmt: i => `<div class="th">${M.lbl(labels[i], 'long')}${labels[i] > now ? ' · planned' : ''}</div>` + ser.slice().reverse().map(x => x.values[i] ? C.tipRow(x.name, gbp(x.values[i]), x.color) : '').join('') + C.tipRow('Total', `<b>${gbp(ser.reduce((t, x) => t + x.values[i], 0))}</b>`) }); },
+      table: () => `<table class="tbl"><thead><tr><th>Group</th>${[M.addM(now, -12), now, M.addM(now, 12)].filter(m => labels.includes(m)).map(m => `<th class="r">${M.lbl(m)}</th>`).join('')}</tr></thead><tbody>${on.map(i => `<tr><td>${esc(i.name)}</td>${[M.addM(now, -12), now, M.addM(now, 12)].filter(m => labels.includes(m)).map(m => `<td class="r">${gbp(M.planMonth(s, m).groups[i.id] || 0)}</td>`).join('')}</tr>`).join('')}</tbody></table>`,
+      notes: () => 'Bars after "Now" are lighter because they\'re planned. Set a bonus or annual bill to a specific month in its budget line and it shows up in that month here.',
+    };
+  };
+
+  L.specs.projection = () => {
+    const s = S(), back = UI.projBack || 12, pr = M.projection(s, back, 24);
+    if (!pr) return { title: 'Projection', draw(el){ el.innerHTML = '<div class="empty">Log some balances first.</div>'; } };
+    const items = [{ id: 'actual', name: 'Actual', color: 'var(--accent)' }, { id: 'trend', name: `Recent trend (${signed(pr.trendRate)}/mo)`, color: 'var(--s1)' }, { id: 'budget', name: 'Budget plan', color: 'var(--s3)' }];
+    if (pr.hasScenarios) items.push({ id: 'withS', name: 'Budget + what-ifs', color: 'var(--s2)' });
+    const pick = { actual: { values: pr.actual, width: 2.4 }, trend: { values: pr.trend, dash: true }, budget: { values: pr.budget, dash: true }, withS: { values: pr.withS, dash: true } };
+    const ser = items.filter(i => vis('projection', i.id)).map(i => ({ name: i.name, short: i.name.split(' (')[0], color: i.color, ...pick[i.id] }));
+    return {
+      title: 'Where liquid funds are heading', controls: () => seg('projBack', [[12,'1 year back'],[24,'2 years back']], back), sub: `Last ${back} months actual (solid), next 24 months projected (dashed)${pr.hasUpcoming ? ', including Coming up items' : ''}`, pills: items,
+      draw(el, big){ C.line(el, { labels: pr.labels, fmtX: i => M.lbl(pr.labels[i]), height: big ? 380 : 270, series: ser, markIdx: pr.now, markLabel: 'Today', aria: 'Liquid funds: actual and projected',
+        tipFmt: i => `<div class="th">${M.lbl(pr.labels[i], 'long')}${i > pr.now ? ' · projected' : ''}</div>` + ser.map(x => x.values[i] == null ? '' : C.tipRow(x.short, gbp(x.values[i]), x.color)).join('') + (i > pr.now ? C.tipRow('Plan that month', signed(M.planMonth(s, pr.labels[i]).net)) : '') }); },
+      readout: () => { const i12 = pr.now + 12, i24 = pr.now + 24; return `<div class="readout"><span>In 12 months: trend <b>${gbp(pr.trend[i12])}</b> · budget <b>${gbp(pr.budget[i12])}</b></span><span>In 24 months: trend <b>${gbp(pr.trend[i24])}</b> · budget <b>${gbp(pr.budget[i24])}</b></span>${pr.hasScenarios ? `<span>What-ifs at 12 months <b class="${cls(pr.withS[i12] - pr.budget[i12])}">${signed(pr.withS[i12] - pr.budget[i12])}</b></span>` : ''}</div>`; },
+      table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="r">Trend</th><th class="r">Budget</th>${pr.hasScenarios ? '<th class="r hide-sm">+ What-ifs</th>' : ''}</tr></thead><tbody>${pr.labels.map((m, i) => (i <= pr.now || (i - pr.now) % 3) ? '' : `<tr><td>${M.lbl(m, 'long')}</td><td class="r">${gbp(pr.trend[i])}</td><td class="r">${gbp(pr.budget[i])}</td>${pr.hasScenarios ? `<td class="r hide-sm">${gbp(pr.withS[i])}</td>` : ''}</tr>`).join('')}</tbody></table>`,
+      notes: () => '"Recent trend" repeats your 6-month average change. "Budget plan" uses the Budget tab month by month, so bonus months and annual bills show as steps. Both add anything in Coming up.',
     };
   };
 
   // ======================================================================
   // OVERVIEW
   // ======================================================================
+  function checkinCard(s){
+    const tm = M.thisMonth(), ci = M.checkin(s, tm), pctDone = ci.total ? Math.round(ci.done / ci.total * 100) : 0;
+    const stepsDone = ci.items.filter(i => i.done).length;
+    const status = ci.complete ? '<span class="pos">✓ Complete</span>' : (ci.started ? 'In progress' : '<span style="color:var(--accent)">Due now</span>');
+    const out = ci.rows.filter(r => !r.on);
+    const btn = ci.done === ci.total
+      ? `<button class="btn block" data-act="logBalances" data-m="${tm}">Review ${M.lbl(tm, 'month')} balances</button>`
+      : `<button class="btn primary block" data-act="logBalances" data-m="${tm}">${ci.started ? 'Continue' : 'Start'} ${M.lbl(tm, 'month')} check-in</button>`;
+    const list = ci.items.map(i => `<li class="${i.done ? 'done' : ''}"><button class="box ${i.done ? 'done' : ''}" data-act="tick" data-m="${tm}" data-k="${i.id}" aria-pressed="${i.done}" aria-label="${esc(i.label)}">✓</button>
+      <span class="txt"><span>${i.tab ? `<a href="#" data-act="tab" data-tab="${i.tab}">${esc(i.label)}</a>` : esc(i.label)}</span>${i.auto ? `<span class="sub">${i.detail} accounts${ci.done === ci.total ? ' · ticked automatically' : ''}</span>` : ''}</span></li>`).join('');
+    return `<section class="card s5 accent update-card">
+      <div class="hero-label">Monthly check-in · ${status}</div>
+      <div class="month">${M.lbl(tm, 'long')}</div>
+      <div class="progress ${ci.done === ci.total ? 'done' : ''}"><div style="width:${pctDone}%"></div></div>
+      <div class="when"><b>${ci.done} of ${ci.total}</b> accounts updated${ci.started ? '' : ` · last check-in ${(() => { const p = M.lastRecordedMonth(s); const sn = p && M.snap(s, p); return p ? M.lbl(p, 'long') + (sn && sn.date ? ' (' + M.dateLbl(sn.date, false) + ')' : '') : '—'; })()}`}</div>
+      ${out.length && ci.started ? `<div class="small muted">Still to update:</div><div class="outstanding">${out.slice(0, 10).map(r => `<span class="chip">${esc(r.acc.name)}</span>`).join('')}${out.length > 10 ? `<span class="chip">+${out.length - 10} more</span>` : ''}</div>` : ''}
+      <div style="margin-top:12px">${btn}</div>
+      <ul class="checklist" aria-label="Check-in steps, ${stepsDone} of ${ci.items.length} done">${list}</ul>
+    </section>`;
+  }
+
   L.pages.overview = { render(){
     const s = S(), l = M.latest(s);
     if (!l) return pageHead('Overview') + `<div class="card"><div class="empty">No balances yet.<br><br><button class="btn primary" data-act="logBalances">Log your first balances</button></div></div>`;
     const tl = M.timeline(s), prev = tl[tl.length - 2], ago = M.point(s, M.addM(l.m, -12));
     const avg6 = M.avgChange(s, 6), plan = M.plan(s, M.yearOf(l.m)), cov = M.coverage(s), nw = M.netWorth(s);
-    const lastSnap = l.snap;
 
-    // verdict: are we spending more than comes in?
     const implied = avg6 == null ? null : plan.inflow - avg6;
     let v;
     if (avg6 == null) v = { c: 'warn', i: '?', t: 'Not enough history yet', d: 'Log a few months to see the trend.' };
@@ -229,38 +286,17 @@
     else v = { c: 'bad', i: '!', t: 'Spending more than is coming in', d: `Liquid funds fell <b>${gbp(-avg6)}</b> a month on average over the last 6 months, so today's funds would last about ${(l.liquid / -avg6 / 12).toFixed(1)} years at that rate.` };
     if (implied != null) v.d += ` That suggests spending of roughly ${gbp(implied)}/mo against ${gbp(plan.outgoings)} planned for ${plan.year}.`;
 
-    // check-in card
-    const tm = M.thisMonth(), logged = M.snap(s, tm), lastM = M.lastRecordedMonth(s), lastS = M.snap(s, lastM);
-    const days = logged && logged.date ? M.daysSince(logged.date) : null;
-    const checkin = logged
-      ? `<div class="hero-label">Monthly check-in</div><div class="month">${M.lbl(tm, 'long')} <span class="pos">✓</span></div>
-         <div class="when">Logged ${logged.date ? M.dateLbl(logged.date) + (days != null ? ` (${days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago'})` : '') : ''}. Next check-in is ${M.lbl(M.addM(tm, 1), 'month')}.</div>
-         <button class="btn block" data-act="logBalances" data-m="${tm}">Edit ${M.lbl(tm, 'month')} balances</button>`
-      : `<div class="hero-label">Monthly check-in</div><div class="month">${M.lbl(tm, 'month')} is due</div>
-         <div class="when">Last logged: ${M.lbl(lastM, 'long')}${lastS && lastS.date ? ' (' + M.dateLbl(lastS.date) + ')' : ''}. Takes about two minutes.</div>
-         <button class="btn primary block" data-act="logBalances" data-m="${tm}">Log ${M.lbl(tm, 'month')} balances</button>`;
-    const steps = `<ul class="steps">
-      <li><span class="tick ${logged ? 'done' : ''}">${logged ? '✓' : '1'}</span>Log each account's balance</li>
-      <li><span class="tick">2</span><span>Check the <a href="#" data-act="tab" data-tab="trends">monthly change</a></span></li>
-      <li><span class="tick">3</span><span>Update the <a href="#" data-act="tab" data-tab="budget">budget</a> if anything changed</span></li></ul>`;
-
-    // buckets
     const d = M.detailSnaps(s), ds = d[d.length - 1], dp = d[d.length - 2];
     const bucketRows = s.tags.map(t => {
       const now = M.tagTotalAt(s, t.id, ds), was = dp ? M.tagTotalAt(s, t.id, dp) : null;
       return `<div class="row clickable" data-act="goTags"><div><div class="name"><span class="chip"><i class="sw" style="background:${tagColor(t)}"></i>${esc(t.name)}</span></div><div class="meta">${M.tagAccounts(s, t.id).length} accounts</div></div><div class="right"><div class="big">${gbp(now)}</div><div class="chg">${was == null ? '' : chg(now - was)}</div></div></div>`;
     }).join('');
 
-    // movers
-    const mv = M.movers(s).slice(0, 6);
-    let transfer = '';
-    for (let i = 0; i < mv.length && !transfer; i++) for (let j = i + 1; j < mv.length; j++){
-      const a = mv[i], b = mv[j];
-      if (Math.sign(a.d) !== Math.sign(b.d) && Math.abs(a.d + b.d) < 0.05 * Math.max(Math.abs(a.d), Math.abs(b.d)) && Math.abs(a.d) > 500){ transfer = `<div class="note box">${esc(a.acc.name)} ${signed(a.d)} and ${esc(b.acc.name)} ${signed(b.d)} look like a transfer between accounts (net ${signed(a.d + b.d)}).</div>`; break; }
-    }
-    const moverRows = mv.map(r => `<div class="row clickable" data-act="openAccount" data-id="${r.acc.id}"><div><div class="name">${esc(r.acc.name)}</div><div class="meta">${gbp(r.from)} → ${gbp(r.to)}</div></div><div class="right"><div class="big ${cls(r.d)}">${signed(r.d)}</div></div></div>`).join('');
+    const mv = M.moves(s);
+    const trRows = mv.transfers.map(t => `<div class="row"><div><div class="name">Transfer</div><div class="meta">${esc(t.from.name)} → ${esc(t.to.name)}</div></div><div class="right"><div class="big muted">${gbp(t.amount)}</div><div class="chg muted">net £0</div></div></div>`).join('');
+    const moverRows = mv.rows.filter(r => Math.abs(r.net) >= 1).slice(0, 6).map(r => `<div class="row clickable" data-act="openAccount" data-id="${r.acc.id}"><div><div class="name">${esc(r.acc.name)}</div><div class="meta">${gbp(r.from)} → ${gbp(r.to)}${r.rest != null ? ` · after the ${gbp(Math.abs(r.d - r.rest))} transfer` : ''}</div></div><div class="right"><div class="big ${cls(r.net)}">${signed(r.net)}</div></div></div>`).join('');
 
-    return pageHead('Overview', `Balances as of ${lastSnap && lastSnap.date ? M.dateLbl(lastSnap.date) : M.lbl(l.m, 'long')}`) + `
+    return pageHead('Overview', `Balances as of ${l.snap && l.snap.date ? M.dateLbl(l.snap.date) : M.lbl(l.m, 'long')}`) + `
     <div class="grid">
       <section class="card s7">
         <div class="hero-label">Liquid funds · savings + current</div>
@@ -272,19 +308,19 @@
         </div>
         <div class="verdict"><div class="vi ${v.c}" aria-hidden="true">${v.i}</div><div class="vt"><strong>${v.t}</strong>${v.d}</div></div>
       </section>
-      <section class="card s5 accent update-card">${checkin}${steps}</section>
+      ${checkinCard(s)}
       <div class="stats" style="grid-column:1/-1">
         <button class="stat" data-act="openBucket" data-b="savings"><div class="k">Savings</div><div class="v">${gbp(l.savings)}</div><div class="d">${prev ? chg(l.savings - prev.savings, ' vs last month') : ''}</div></button>
         <button class="stat" data-act="openBucket" data-b="current"><div class="k">Current accounts</div><div class="v">${gbp(l.current)}</div><div class="d">${prev ? chg(l.current - prev.current, ' vs last month') : ''}</div></button>
         <button class="stat" data-act="tab" data-tab="planner"><div class="k">Months of cover</div><div class="v">${L.fmt.months(cov.months)}</div><div class="d">${cov.plan.year} plan, essentials</div></button>
-        <button class="stat" data-act="tab" data-tab="accounts"><div class="k">Net worth</div><div class="v">${gbp(nw)}</div><div class="d">Incl. est. house + shares</div></button>
+        <button class="stat" data-act="expand" data-key="networth"><div class="k">Net worth</div><div class="v">${gbp(nw)}</div><div class="d">Incl. est. house + shares</div></button>
       </div>
       ${L.chartCard('composition', { cls: 's7' })}
-      ${L.chartCard('change', { cls: 's5', sub: `${UI.roll}-month average line` })}
-      <section class="card s6"><div class="card-head"><div><h2>Buckets</h2><div class="sub">Totals by tag, vs last log</div></div><div class="actions"><button class="btn sm" data-act="manageTags">Manage tags</button></div></div>
+      ${L.chartCard('change', { cls: 's5' })}
+      <section class="card s6"><div class="card-head"><div><h2>Buckets</h2><div class="sub">Totals by tag, vs last check-in</div></div><div class="actions"><button class="btn sm" data-act="manageTags">Manage tags</button></div></div>
         <div class="rows">${bucketRows || '<div class="empty">No tags yet.</div>'}</div></section>
-      <section class="card s6"><div class="card-head"><div><h2>What moved</h2><div class="sub">${dp ? `Biggest account changes, ${M.lbl(dp.month, 'mon')} → ${M.lbl(ds.month, 'mon')}` : 'Needs two monthly logs'}</div></div></div>
-        <div class="rows">${moverRows || '<div class="empty">Nothing to compare yet.</div>'}</div>${transfer}</section>
+      <section class="card s6"><div class="card-head"><div><h2>What moved</h2><div class="sub">${mv.from ? `Biggest account changes, ${M.lbl(mv.from, 'mon')} → ${M.lbl(mv.to, 'mon')}. Transfers between your accounts are netted out` : 'Needs two monthly check-ins'}</div></div></div>
+        <div class="rows">${trRows}${moverRows || (trRows ? '' : '<div class="empty">Nothing to compare yet.</div>')}</div></section>
     </div>`;
   } };
 
@@ -295,7 +331,7 @@
     const s = S(), ser = M.accountSeries(s, a.id), now = ser[ser.length - 1], prv = ser[ser.length - 2];
     const tags = a.tags.map(id => M.tag(s, id)).filter(Boolean);
     return `<div class="row acc-row clickable" data-act="openAccount" data-id="${a.id}">
-      <div><div class="name">${esc(a.name)}${a.estimate ? '<span class="est-badge">est.</span>' : ''}</div>${tags.length ? `<div class="chips">${tags.map(chip).join('')}</div>` : ''}</div>
+      <div><div class="name">${esc(a.name)}${a.estimate ? '<span class="est-badge">est.</span>' : ''}</div>${tags.length ? `<div class="chips">${tags.map(chip).join('')}</div>` : ''}${a.bucket !== 'asset' ? `<div style="margin-top:3px">${(() => { const on = M.updatedOn(M.snap(s, M.thisMonth()), a.id); const last = M.lastUpdate(s, a.id); return updLbl(on, last); })()}</div>` : ''}</div>
       ${C.spark(ser.map(x => x.v), a.bucket === 'asset' ? { color: 'var(--s3)' } : {})}
       <div class="right"><div class="big">${now ? gbp(now.v) : '—'}</div><div class="chg">${prv ? chg(now.v - prv.v) : (now ? `<span class="muted">${M.lbl(now.m)}</span>` : '')}</div></div></div>`;
   }
@@ -324,7 +360,7 @@
       <div class="filters"><div class="f"><span class="lbl">Group by</span>${seg('groupBy', [['bucket','Savings / current'],['tag','Tag']], UI.groupBy)}</div></div>
       <div class="grid">${groups}
         ${assets.length ? groupCard('assets', 'Other assets', assets, { cls: 's12', swatch: BUCKET.asset.color, noChange: true }) : ''}
-        ${L.chartCard('tags', { cls: 's12' })}
+        ${L.chartCard('tags', { cls: 's6' })}${L.chartCard('networth', { cls: 's6' })}
         ${archived.length ? `<section class="card s12"><h2>Archived</h2><div class="rows" style="margin-top:8px">${archived.map(accRow).join('')}</div></section>` : ''}
       </div>
       <div class="note">Net worth: liquid ${gbp(M.latest(s) ? M.latest(s).liquid : 0)} + other assets ${gbp(Object.values(M.assetValues(s)).reduce((t, x) => t + x.value, 0))} = <b>${gbp(M.netWorth(s))}</b>. Other assets are estimates until you enter real values.</div>`;
@@ -388,73 +424,96 @@
   L.acts.deleteTag = el => { if (!confirm('Delete this tag? Accounts keep their balances.')) return; L.commit(s => { s.tags = s.tags.filter(t => t.id !== el.dataset.id); s.accounts.forEach(a => a.tags = a.tags.filter(x => x !== el.dataset.id)); if (s.coverage.slowTagId === el.dataset.id) s.coverage.slowTagId = null; }, { modal: true }); };
 
   // ---------------- monthly check-in ----------------
-  L.acts.logBalances = el => openLog((el && el.dataset.m) || M.thisMonth());
+  // Accounts can be updated over several days: each one records the date it was confirmed for the month.
+  L.acts.logBalances = el => openLog((el && el.dataset && el.dataset.m) || M.thisMonth());
   function openLog(month){
     const s = S();
     const existing = M.snap(s, month);
-    const before = M.detailSnaps(s).filter(x => x.month < month), prevSnap = before[before.length - 1];
-    const prevTotals = (() => { const r = s.snapshots.filter(x => x.month < month && (x.balances || x.totals)); return r.length ? M.snapTotals(s, r[r.length - 1]) : null; })();
-    const prevMonth = (() => { const r = s.snapshots.filter(x => x.month < month && (x.balances || x.totals)); return r.length ? r[r.length - 1].month : null; })();
+    const before = s.snapshots.filter(x => x.month < month && x.balances && !x.totals), prevSnap = before[before.length - 1];
+    const prevAny = s.snapshots.filter(x => x.month < month && (x.balances || x.totals)), prevRec = prevAny[prevAny.length - 1];
+    const prevTotals = prevRec ? M.snapTotals(s, prevRec) : null;
     const accs = s.accounts.filter(a => !a.archived);
-    const start = id => existing && existing.balances && existing.balances[id] != null ? existing.balances[id] : (prevSnap ? prevSnap.balances[id] : null);
-    const opts = []; for (let i = 0; i < 24; i++){ const m = M.addM(M.thisMonth(), -i); opts.push(`<option value="${m}" ${m === month ? 'selected' : ''}>${M.lbl(m, 'long')}${M.snap(s, m) ? ' ✓' : ''}</option>`); }
-    const section = (b, title) => { const list = accs.filter(a => a.bucket === b); if (!list.length) return ''; return `<div class="section"><h3>${title}</h3>${list.map(a => { const pv = prevSnap ? prevSnap.balances[a.id] : null; return `<div class="log-row"><div><div class="name">${esc(a.name)}${a.estimate ? '<span class="est-badge">est.</span>' : ''}</div><div class="prev">${pv != null ? M.lbl(prevSnap.month, 'mon') + ': ' + gbp(pv) : 'New'} <span class="dl" data-dl="${a.id}"></span></div></div><input class="input num" inputmode="decimal" data-bal="${a.id}" data-bucket="${b}" data-prev="${pv == null ? '' : pv}" value="${inputNum(start(a.id))}" aria-label="${esc(a.name)} balance"></div>`; }).join('')}</div>`; };
+    const startVal = id => existing && existing.balances && existing.balances[id] != null ? existing.balances[id] : (prevSnap && prevSnap.balances[id] != null ? prevSnap.balances[id] : (M.accountSeries(s, id).filter(x => x.m < month).pop() || {}).v);
+    const opts = []; for (let i = -1; i < 24; i++){ const m = M.addM(M.thisMonth(), -i); opts.push(`<option value="${m}" ${m === month ? 'selected' : ''}>${M.lbl(m, 'long')}${M.snap(s, m) ? ' ✓' : ''}</option>`); }
+    const row = (a, b) => {
+      const on = M.updatedOn(existing, a.id), last = M.lastUpdate(s, a.id);
+      const pv = prevSnap ? prevSnap.balances[a.id] : null;
+      return `<div class="log-row ${on ? 'is-done' : ''}" data-row="${a.id}"><div><div class="name">${esc(a.name)}${a.estimate ? '<span class="est-badge">est.</span>' : ''}</div>
+          <div class="prev">${pv != null ? M.lbl(prevSnap.month, 'mon') + ': ' + gbp(pv) : 'New'} <span class="dl" data-dl="${a.id}"></span></div>
+          <div data-st="${a.id}">${b === 'asset' ? '' : updLbl(on, last && last.m < month ? last : null)}</div>
+          ${!on && b !== 'asset' ? `<button class="same" data-same="${a.id}">Same as last month</button>` : ''}</div>
+        <input class="input num" inputmode="decimal" data-bal="${a.id}" data-bucket="${b}" data-prev="${pv == null ? '' : pv}" value="${inputNum(startVal(a.id))}" aria-label="${esc(a.name)} balance"></div>`;
+    };
+    const section = (b, title) => { const list = accs.filter(a => a.bucket === b); return list.length ? `<div class="section"><h3>${title}</h3>${list.map(a => row(a, b)).join('')}</div>` : ''; };
     L.modal.open(() => ({
-      title: 'Monthly check-in', sub: 'Last month\'s figure is under each account. Prefilled, so just change what moved.',
+      title: `${M.lbl(month, 'long')} check-in`, sub: 'Change what moved, or tap "Same as last month". You can save part-way and come back as balances come in.',
       body: `<div class="two"><div class="field"><label>Month</label><select class="input" id="log-month">${opts.join('')}</select></div>
-          <div class="field"><label>Balances as of</label><input class="input" type="date" id="log-date" value="${(existing && existing.date) || M.today()}"></div></div>
-        ${section('savings', 'Savings')}${section('current', 'Current accounts')}${section('asset', 'Other assets (estimates are fine)')}
+          <div class="field"><label>Updated on</label><input class="input" type="date" id="log-date" value="${M.today()}"></div></div>
+        ${section('savings', 'Savings')}${section('current', 'Current accounts')}${section('asset', 'Other assets (optional, estimates are fine)')}
         <div class="section field"><label>Note for this month (optional)</label><input class="input" id="log-note" value="${esc((existing && existing.note) || '')}" placeholder="e.g. paid nursery deposit, moved £10k to HL"></div>`,
-      foot: `<div class="log-totals"><div><div class="k">Savings</div><div class="v" id="lt-s">—</div></div><div><div class="k">Current</div><div class="v" id="lt-c">—</div></div><!-- --><div><div class="k">Liquid</div><div class="v" id="lt-l">—</div></div></div>
-        <button class="btn primary block" id="log-save">Save ${M.lbl(month, 'long')}</button>`,
+      foot: `<div class="log-totals"><div><div class="k">Savings</div><div class="v" id="lt-s">—</div></div><div><div class="k">Current</div><div class="v" id="lt-c">—</div></div><div><div class="k">Liquid</div><div class="v" id="lt-l">—</div></div></div>
+        <button class="btn primary block" id="log-save">Save</button>`,
       onMount(body){
-        const foot = document.getElementById('modal-foot');
+        const foot = document.getElementById('modal-foot'), touched = new Set();
+        const required = accs.filter(a => a.bucket !== 'asset').map(a => a.id);
+        const already = new Set(required.filter(id => M.updatedOn(existing, id)));
         const recalc = () => {
           let sv = 0, cu = 0;
           body.querySelectorAll('[data-bal]').forEach(i => {
             const v = L.parseNum(i.value), pv = i.dataset.prev === '' ? null : Number(i.dataset.prev);
             if (v != null){ if (i.dataset.bucket === 'savings') sv += v; else if (i.dataset.bucket === 'current') cu += v; }
-            const dl = body.querySelector(`[data-dl="${i.dataset.bal}"]`);
-            dl.innerHTML = (v != null && pv != null && Math.round(v - pv) !== 0) ? `· <span class="${cls(v - pv)}">${signed(v - pv)}</span>` : '';
+            body.querySelector(`[data-dl="${i.dataset.bal}"]`).innerHTML = (v != null && pv != null && Math.round(v - pv) !== 0) ? `· <span class="${cls(v - pv)}">${signed(v - pv)}</span>` : '';
           });
           foot.querySelector('#lt-s').textContent = gbp(sv); foot.querySelector('#lt-c').textContent = gbp(cu);
           const liq = sv + cu, d = prevTotals ? liq - prevTotals.liquid : null;
           foot.querySelector('#lt-l').innerHTML = gbp(liq) + (d != null ? `<div class="${cls(d)} tiny" style="font-weight:500">${signed(d)}</div>` : '');
+          const n = required.filter(id => already.has(id) || touched.has(id)).length;
+          foot.querySelector('#log-save').textContent = n === required.length ? `Save · all ${n} accounts updated` : `Save progress · ${n} of ${required.length} updated`;
         };
-        body.addEventListener('input', e => { if (e.target.matches('[data-bal]')) recalc(); });
+        const mark = id => { touched.add(id); const r = body.querySelector(`[data-row="${id}"]`); if (r){ r.classList.add('is-done'); const st = r.querySelector(`[data-st="${id}"]`); if (st && st.innerHTML) st.innerHTML = `<span class="upd ok">✓ Will save as updated</span>`; const b = r.querySelector('.same'); if (b) b.remove(); } };
+        body.addEventListener('input', e => { if (e.target.matches('[data-bal]')){ mark(e.target.dataset.bal); recalc(); } });
+        body.addEventListener('click', e => { const b = e.target.closest('[data-same]'); if (b){ e.preventDefault(); mark(b.dataset.same); recalc(); } });
         body.querySelectorAll('[data-bal]').forEach(i => i.addEventListener('focus', () => i.select()));
         body.querySelector('#log-month').addEventListener('change', e => openLog(e.target.value));
         recalc();
         foot.querySelector('#log-save').addEventListener('click', () => {
+          const date = body.querySelector('#log-date').value || M.today(), note = body.querySelector('#log-note').value.trim();
           const bal = {}; body.querySelectorAll('[data-bal]').forEach(i => { const v = L.parseNum(i.value); if (v != null) bal[i.dataset.bal] = v; });
           if (!Object.keys(bal).length){ L.toast('Enter at least one balance'); return; }
-          const date = body.querySelector('#log-date').value || M.today(), note = body.querySelector('#log-note').value.trim();
           L.commit(st => {
-            const snap = { month, date, balances: bal, totals: null, note };
-            const i = st.snapshots.findIndex(x => x.month === month);
-            if (i >= 0){ const old = st.snapshots[i]; if (old.balances) Object.keys(old.balances).forEach(k => { const a = M.acc(st, k); if (a && a.archived && bal[k] == null) bal[k] = old.balances[k]; }); st.snapshots[i] = snap; }
-            else st.snapshots.push(snap);
+            const i = st.snapshots.findIndex(x => x.month === month), old = i >= 0 ? st.snapshots[i] : null;
+            // carry forward when-updated dates; older snapshots without a map count as updated on their date
+            const updated = old ? (old.updated ? { ...old.updated } : Object.fromEntries(Object.keys(old.balances || {}).map(k => [k, old.date || month + '-01']))) : {};
+            touched.forEach(id => { updated[id] = date; });
+            if (old && old.balances) Object.keys(old.balances).forEach(k => { if (bal[k] == null) bal[k] = old.balances[k]; });
+            const snap = { month, date: Object.values(updated).sort().pop() || date, balances: bal, totals: null, updated, note };
+            if (i >= 0) st.snapshots[i] = snap; else st.snapshots.push(snap);
             st.snapshots.sort((a, b) => a.month < b.month ? -1 : 1);
-            st.gaps = (st.gaps || []).filter(g => g.month !== month);
           });
           L.modal.close();
-          const p = M.point(S(), month);
-          L.toast(`${M.lbl(month, 'long')} saved · liquid ${p && p.change != null ? signed(p.change) : gbp(p ? p.liquid : 0)}`);
+          const ci = M.checkin(S(), month), p = M.point(S(), month);
+          L.toast(`${M.lbl(month, 'long')}: ${ci.done} of ${ci.total} updated · liquid ${p && p.change != null ? signed(p.change) : gbp(p ? p.liquid : 0)}`);
         });
       },
     }));
   }
+  L.acts.quickOneOff = () => {
+    L.commit(s => s.events.push({ id: L.uid('e'), month: M.thisMonth(), label: '', amount: 0 }), { render: false });
+    UI.tab = 'planner'; L.saveUI(); L.render();
+    setTimeout(() => { const c = document.getElementById('oneoffs'); if (c){ c.scrollIntoView({ behavior: 'smooth', block: 'center' }); const inp = c.querySelectorAll('.edit-list .input:not(.date)'); if (inp.length) inp[inp.length - 2].focus(); } }, 80);
+  };
 
   // ======================================================================
   // BUDGET
   // ======================================================================
+  const paidLbl = l => l.payMonths && l.payMonths.length ? `<span class="paid">Paid ${l.payMonths.map(m => M.MON[m - 1]).join(', ')}</span>` : '';
   L.pages.budget = { render(){
     const s = S(), ys = M.years(s), cy = new Date().getFullYear();
     if (!ys.includes(UI.budgetYear)) UI.budgetYear = ys.includes(cy) ? cy : ys[ys.length - 1];
     const y = UI.budgetYear, py = ys[ys.indexOf(y) - 1], p = M.plan(s, y), pp = py ? M.plan(s, py) : null;
     const isPlan = s.settings.planYear === y;
-    const d = (k) => pp ? `<span class="dlt ${cls(k === 'outgoings' || ['fixed','living','extra'].includes(k) ? -(p[k] - pp[k]) : p[k] - pp[k])}">${signed(p[k] - pp[k])}</span>` : '';
-    const sumRow = (label, k, strong) => `<div class="row" style="grid-template-columns:minmax(0,1fr) auto 70px"><div class="name">${label}</div><div class="right ${strong ? 'big' : ''}">${gbp(p[k])}</div><div class="right tiny">${d(k)}</div></div>`;
+    const d = (k) => pp ? `<span class="dlt ${cls(['outgoings','fixed','living','extra'].includes(k) ? -(p[k] - pp[k]) : p[k] - pp[k])}">${signed(p[k] - pp[k])}</span>` : '';
+    const sumRow = (label, k) => `<div class="row" style="grid-template-columns:minmax(0,1fr) auto 70px"><div class="name">${label}</div><div class="right">${gbp(p[k])}</div><div class="right tiny">${d(k)}</div></div>`;
     const hidden = s.budget.lines.filter(l => l.kind === 'off').length;
 
     const groups = s.budget.groups.map(g => {
@@ -466,7 +525,7 @@
       const col = UI.collapsed['bg-' + g.id];
       const rows = visible.map(l => {
         const a = M.amt(l, y), pa = py ? M.amt(l, py) : null, dd = pa == null ? null : a - pa;
-        return `<div class="row b-row ${l.kind === 'off' ? 'off' : ''}"><div style="min-width:0"><div class="name" data-act="openLine" data-id="${l.id}">${esc(l.name)}<span class="kind ${l.kind}">${M.kindName(l.kind)}</span></div>${l.note ? `<div class="meta">${esc(l.note)}</div>` : ''}</div>
+        return `<div class="row b-row ${l.kind === 'off' ? 'off' : ''}"><div style="min-width:0"><div class="name" data-act="openLine" data-id="${l.id}">${esc(l.name)}<span class="kind ${l.kind}">${M.kindName(l.kind)}</span>${paidLbl(l)}</div>${l.note ? `<div class="meta">${esc(l.note)}</div>` : ''}</div>
           <input class="inline-num" inputmode="decimal" value="${inputNum(Math.round(a * 100) / 100)}" data-edit="amt" data-id="${l.id}" aria-label="${esc(l.name)} ${y} monthly amount">
           <div class="dlt">${dd == null || Math.abs(dd) < 0.5 ? '' : `<span class="${cls(isIncome ? dd : -dd)}">${signed(dd)}</span>`}</div></div>`;
       }).join('');
@@ -477,9 +536,13 @@
           <button class="add-link" data-act="addLine" data-g="${g.id}">+ Add line</button></div></section>`;
     }).join('');
 
+    // biggest costs + share by group for the selected year
+    const costLines = s.budget.lines.filter(l => M.OUT.includes(l.kind) && M.amt(l, y) > 0).sort((a, b) => M.amt(b, y) - M.amt(a, y));
+    const top = costLines.slice(0, 10);
+    const groupShare = s.budget.groups.map(g => ({ g, v: M.groupTotal(s, g.id, y, M.OUT) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
     const sal = (s.budget.salaries || []).map(x => `<div class="row"><div><div class="name">${esc(x.name)}</div>${x.note ? `<div class="meta">${esc(x.note)}</div>` : ''}</div><div class="right">${gbp(x.amounts[y])}<div class="tiny muted">per year</div></div></div>`).join('');
 
-    return pageHead('Budget', 'What you expect to come in and go out each month. Tap any amount to change it.', plusBtn('addGroup', 'Group')) + `
+    return pageHead('Budget', 'What you expect to come in and go out each month. Tap any amount to change it, or a name for more options.', plusBtn('addGroup', 'Group')) + `
       <div class="filters">
         <div class="f"><span class="lbl">Year</span>${seg('budgetYear', ys.map(v => [v, v + (v === s.settings.planYear ? ' ★' : '')]), y)}<button class="btn sm" data-act="addYear">+ ${ys[ys.length - 1] + 1}</button></div>
         <div class="f">${isPlan ? '<span class="chip"><i class="sw" style="background:var(--accent)"></i>Planning year</span>' : `<button class="btn sm" data-act="makePlanYear" data-y="${y}">Make ${y} the planning year</button>`}</div>
@@ -488,13 +551,18 @@
       <div class="grid">
         <section class="card s5"><div class="card-head"><div><h2>${y} per month</h2><div class="sub">${pp ? 'Change vs ' + py + ' on the right' : 'First budgeted year'}</div></div></div>
           <div class="rows">
-            ${sumRow('Take-home income', 'income')}${sumRow('Bonus (spread monthly)', 'bonus')}
+            ${sumRow('Take-home income', 'income')}${sumRow('Bonus (monthly average)', 'bonus')}
             ${sumRow('Fixed costs', 'fixed')}${sumRow('Living costs', 'living')}${sumRow('Extras', 'extra')}
             <div class="row" style="grid-template-columns:minmax(0,1fr) auto 70px"><div class="name"><b>Left over each month</b></div><div class="right big ${cls(p.net)}" style="font-size:18px">${signed(p.net)}</div><div class="right tiny">${pp ? `<span class="dlt ${cls(p.net - pp.net)}">${signed(p.net - pp.net)}</span>` : ''}</div></div>
           </div>
-          <div class="note">Fixed = must-pay (mortgage, bills, nursery). Living = day-to-day (food, kids, clothes). Extras = flexible (holidays, eating out). Same split as the sheet's A/B/X/C/D codes.</div>
+          <div class="note">Fixed = must-pay (mortgage, bills, nursery). Living = day-to-day (food, kids, clothes). Extras = flexible (holidays, eating out). Same split as the sheet's column-A codes.</div>
         </section>
         ${L.chartCard('waterfall', { cls: 's7' })}
+        ${L.chartCard('spend', { cls: 's12' })}
+        <section class="card s6"><div class="card-head"><div><h2>Biggest costs in ${y}</h2><div class="sub">Top ${top.length} lines, share of ${gbp(p.outgoings)} a month</div></div></div>
+          ${C.hbars(top.map(l => ({ label: l.name, value: M.amt(l, y), color: groupColor(s, l.groupId), display: `${gbp(M.amt(l, y))} <span class="muted tiny">${Math.round(M.amt(l, y) / p.outgoings * 100)}%</span>` })))}</section>
+        <section class="card s6"><div class="card-head"><div><h2>By group in ${y}</h2><div class="sub">Monthly spend${pp ? ' and change vs ' + py : ''}</div></div></div>
+          ${C.hbars(groupShare.map(x => { const pv = py ? M.groupTotal(s, x.g.id, py, M.OUT) : null; return { label: x.g.name, value: x.v, color: groupColor(s, x.g.id), display: `${gbp(x.v)}${pv != null && Math.abs(x.v - pv) >= 1 ? ` <span class="${cls(pv - x.v)} tiny">${signed(x.v - pv)}</span>` : ''}` }; }))}</section>
         ${groups}
         ${sal ? `<section class="card s6"><div class="card-head"><div><h2>Gross salaries</h2><div class="sub">Reference only, not counted in the totals</div></div></div><div class="rows">${sal}</div></section>` : ''}
       </div>`;
@@ -506,15 +574,22 @@
   L.acts.addLine = el => { const id = L.uid('b'); L.commit(s => { const amounts = {}; s.budget.years.forEach(y => amounts[y] = 0); s.budget.lines.push({ id, groupId: el.dataset.g, name: 'New line', kind: 'living', amounts, note: '' }); }); openLine(id); };
   L.acts.addGroup = () => { const name = prompt('Name for the new group'); if (!name) return; L.commit(s => s.budget.groups.push({ id: L.uid('g'), name: name.trim() })); };
   L.acts.openLine = el => openLine(el.dataset.id);
+  L.acts.payMode = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id); l.payMonths = el.dataset.v === 'months' ? (l.payMonths && l.payMonths.length ? l.payMonths : [3]) : []; }, { modal: true });
+  L.acts.payMonth = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id), m = Number(el.dataset.m); l.payMonths = l.payMonths || []; const i = l.payMonths.indexOf(m); if (i >= 0){ if (l.payMonths.length > 1) l.payMonths.splice(i, 1); } else l.payMonths.push(m); l.payMonths.sort((a, b) => a - b); }, { modal: true });
   function openLine(id){
     L.modal.open(() => {
       const s = S(), l = s.budget.lines.find(x => x.id === id); if (!l) return { title: 'Removed', body: '' };
-      const ys = M.years(s);
+      const ys = M.years(s), pm = l.payMonths && l.payMonths.length ? l.payMonths : null;
       const max = Math.max(1, ...ys.map(y => Math.abs(M.amt(l, y))));
+      const y = UI.budgetYear || s.settings.planYear, a = M.amt(l, y);
       return {
         title: l.name, sub: `${M.kindName(l.kind)} · ${esc((s.budget.groups.find(g => g.id === l.groupId) || {}).name || '')}`, narrow: true,
-        body: `<div class="section">${C.hbars(ys.map(y => ({ label: String(y) + (y === s.settings.planYear ? ' ★' : ''), value: M.amt(l, y), color: y === UI.budgetYear ? 'var(--accent)' : 'var(--s1)', display: gbp(M.amt(l, y)) + '/mo' })), { max })}</div>
-          <div class="section"><h3>Monthly amount by year</h3><div class="two">${ys.map(y => `<div class="field"><label>${y}</label><input class="input num" inputmode="decimal" value="${inputNum(Math.round(M.amt(l, y) * 100) / 100)}" data-edit="lineYear" data-id="${id}" data-y="${y}"></div>`).join('')}</div></div>
+        body: `<div class="section">${C.hbars(ys.map(yy => ({ label: String(yy) + (yy === s.settings.planYear ? ' ★' : ''), value: M.amt(l, yy), color: yy === y ? 'var(--accent)' : 'var(--s1)', display: gbp(M.amt(l, yy)) + '/mo' })), { max })}</div>
+          <div class="section"><h3>Monthly amount by year</h3><div class="small muted" style="margin-bottom:8px">Enter the monthly average (the yearly amount ÷ 12), even if it's paid in one go. Then pick the month below.</div><div class="two">${ys.map(yy => `<div class="field"><label>${yy}</label><input class="input num" inputmode="decimal" value="${inputNum(Math.round(M.amt(l, yy) * 100) / 100)}" data-edit="lineYear" data-id="${id}" data-y="${yy}"></div>`).join('')}</div></div>
+          <div class="section"><h3>When is it paid?</h3>
+            <div class="seg" style="margin-bottom:10px"><button class="${pm ? '' : 'on'}" data-act="payMode" data-id="${id}" data-v="monthly">Every month</button><button class="${pm ? 'on' : ''}" data-act="payMode" data-id="${id}" data-v="months">Specific months</button></div>
+            ${pm ? `<div class="mgrid">${M.MON.map((mn, i) => `<button class="${pm.includes(i + 1) ? 'on' : ''}" data-act="payMonth" data-id="${id}" data-m="${i + 1}">${mn}</button>`).join('')}</div>
+              <div class="note">In ${y} that's ${gbp(a * 12 / pm.length)} in ${pm.map(m => M.MON[m - 1]).join(', ')} and nothing in other months. Forecasts and "actual against plan" use these months; annual totals don't change.</div>` : '<div class="note">Spread evenly: the same amount every month.</div>'}</div>
           <div class="section"><h3>Details</h3>
             <div class="field"><label>Name</label><input class="input" value="${esc(l.name)}" data-edit="field" data-coll="budget.lines" data-id="${id}" data-f="name" data-refresh="1"></div>
             <div class="two"><div class="field"><label>Type</label><select class="input" data-edit="field" data-coll="budget.lines" data-id="${id}" data-f="kind" data-refresh="1">${M.KINDS.map(k => `<option value="${k.id}" ${l.kind === k.id ? 'selected' : ''}>${k.name}</option>`).join('')}</select></div>
@@ -532,22 +607,22 @@
   L.pages.trends = { render(){
     const s = S(), tl = M.timeline(s); if (!tl.length) return pageHead('Trends') + '<div class="card"><div class="empty">No history yet.</div></div>';
     const hasEvents = (s.events || []).length > 0;
-    return pageHead('Trends', `${recordedCount()} months recorded · ${M.lbl(tl[0].m, 'long')} to ${M.lbl(tl[tl.length - 1].m, 'long')}`) + `
+    return pageHead('Trends', `${tl.length} months of history · ${M.lbl(tl[0].m, 'long')} to ${M.lbl(tl[tl.length - 1].m, 'long')}`) + `
       <div class="filters">
         <div class="f"><span class="lbl">Range</span>${seg('range', RANGES, UI.range)}</div>
-        <div class="f"><span class="lbl">Show</span>${seg('measure', [['liquid','Liquid'],['savings','Savings'],['current','Current']], UI.measure)}</div>
         <div class="f"><span class="lbl">Average</span>${seg('roll', [[3,'3 mo'],[6,'6 mo'],[12,'12 mo']], UI.roll)}</div>
         ${hasEvents ? `<label class="switch"><input type="checkbox" ${UI.strip ? 'checked' : ''} data-act="set" data-k="strip" data-v="${!UI.strip}">Strip one-offs</label>` : ''}
       </div>
       <div class="grid">
         ${L.chartCard('balance', { cls: 's12' })}
         ${L.chartCard('change', { cls: 's7' })}
-        <section class="card s5"><div class="card-head"><div><h2>Year by year</h2><div class="sub">Change in liquid funds per calendar year</div></div><div class="actions"><button class="icon-btn" data-act="expand" data-key="yoy" aria-label="Open year chart">${L.icons.expand}</button></div></div>${yearTable()}</section>
+        ${L.chartCard('plan', { cls: 's5', controls: `<div class="filters" style="margin-bottom:8px">${L.spec('plan').controls()}</div>` })}
+        <section class="card s12"><div class="card-head"><div><h2>Year by year</h2><div class="sub">Change in liquid funds per calendar year</div></div><div class="actions"><button class="icon-btn" data-act="expand" data-key="yoy" aria-label="Open year chart">${L.icons.expand}</button></div></div>${yearTable()}</section>
         ${L.chartCard('yoy', { cls: 's6' })}
-        ${L.chartCard('plan', { cls: 's6', controls: `<div class="filters" style="margin-bottom:8px">${L.spec('plan').controls()}</div>` })}
+        ${L.chartCard('networth', { cls: 's6' })}
         ${L.chartCard('cover', { cls: 's6' })}
         ${L.chartCard('tags', { cls: 's6' })}
-        <section class="card s12"><h2>About this data</h2><div class="note" style="margin-top:8px">${gapsNote()}<br>History before Aug 2026 is the savings/current totals you pasted into rows 92–93 of the sheet. From Aug 2026 every account is logged, so account and tag charts build up from there. ${s.events.length ? '' : 'Log big one-offs (house works, bonuses) in Planner to strip them out of the monthly change.'}</div></section>
+        <section class="card s12"><h2>About this data</h2><div class="note" style="margin-top:8px">History before Aug 2026 is the savings/current totals from rows 92–93 of the sheet (Feb and Jul 2026 weren't recorded there, so they repeat the month before). From Aug 2026 every account is logged, so account and tag charts fill in from there. House equity and Motorway shares come from the sheet's rows 82–83, which were estimates. ${s.events.length ? '' : 'Log big one-offs (house works, bonuses) in Planner and you can strip them out of the monthly change.'}</div></section>
       </div>`;
   } };
 
@@ -572,7 +647,7 @@
     const ladCol = ['var(--s2)', 'var(--s1)', c.slowTagId && M.tag(s, c.slowTagId) ? tagColor(M.tag(s, c.slowTagId)) : 'var(--s3)'];
     let cum = 0;
     const ladRows = ladder.map((t, i) => { cum += t.v; return `<div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div><span class="chip"><i class="sw" style="background:${ladCol[i]}"></i>${esc(t.label)}</span></div><div class="right"><b>${gbp(t.v)}</b> <span class="muted small">· ${cov.costs > 0 ? (t.v / cov.costs).toFixed(1) : '—'} mo${i ? `, ${(cum / cov.costs).toFixed(1)} cumulative` : ''}</span></div></div>`; }).join('');
-    const rate = M.avgChange(s, 6) || 0;
+    const rate = M.avgChange(s, 6) || 0; // scratchpad impact uses the recent trend
 
     const scns = s.scenarios.map(sc => {
       const t = M.scenarioTotals(sc);
@@ -609,7 +684,7 @@
         <section class="card s6"><div class="card-head"><div><h2>Coming up</h2><div class="sub">Known future costs or income. They feed the projection.</div></div></div>
           <div class="edit-list">${s.upcoming.map(u => editRow('upcoming', u, { date: true, ph: 'e.g. Car insurance' })).join('') || '<div class="muted small">Nothing yet.</div>'}</div>
           <button class="add-link" data-act="add" data-coll="upcoming" data-p="u" data-tpl='{"date":"","label":"","amount":0}'>+ Add item</button></section>
-        <section class="card s6"><div class="card-head"><div><h2>One-offs log</h2><div class="sub">Big moves that weren't normal spending. Trends can strip these out.</div></div></div>
+        <section class="card s6" id="oneoffs"><div class="card-head"><div><h2>One-offs log</h2><div class="sub">Big moves that weren't normal spending. Trends can strip these out.</div></div></div>
           <div class="edit-list">${s.events.map(e => editRow('events', e, { month: true, ph: 'e.g. Builder final payment' })).join('') || '<div class="muted small">Nothing logged.</div>'}</div>
           <button class="add-link" data-act="add" data-coll="events" data-p="e" data-tpl='{"month":"${M.thisMonth()}","label":"","amount":0}'>+ Log a one-off</button></section>
         <section class="card s12"><div class="card-head"><div><h2>House project</h2><div class="sub">Everything the move and works have cost, from "general costs in and out"</div></div></div>

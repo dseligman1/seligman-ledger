@@ -11,9 +11,10 @@
   // ---------------- months ----------------
   M.thisMonth = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
   M.today = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
-  M.addM = (ym, n) => { let [y, m] = ym.split('-').map(Number); let t = y * 12 + (m - 1) + n; return Math.floor(t / 12) + '-' + pad(t % 12 + 1); };
+  M.addM = (ym, n) => { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + n; return Math.floor(t / 12) + '-' + pad(t % 12 + 1); };
   M.diffM = (a, b) => { const [ay, am] = a.split('-').map(Number), [by, bm] = b.split('-').map(Number); return (by * 12 + bm) - (ay * 12 + am); };
   M.yearOf = ym => Number(ym.slice(0, 4));
+  M.monthNum = ym => Number(ym.slice(5, 7));
   M.lbl = (ym, style) => {
     const y = ym.slice(0, 4), m = Number(ym.slice(5, 7)) - 1;
     if (style === 'long') return MONTH[m] + ' ' + y;
@@ -22,8 +23,8 @@
     return MON[m] + ' ' + y.slice(2);
   };
   M.MON = MON;
-  M.dateLbl = iso => { if (!iso) return null; const [y, m, d] = iso.split('-').map(Number); return d + ' ' + MON[m - 1] + ' ' + y; };
-  M.daysSince = iso => { if (!iso) return null; const [y, m, d] = iso.split('-').map(Number); return Math.round((new Date() - new Date(y, m - 1, d)) / 86400000); };
+  M.dateLbl = (iso, withYear = true) => { if (!iso) return null; const [y, m, d] = iso.split('-').map(Number); return d + ' ' + MON[m - 1] + (withYear ? ' ' + y : ''); };
+  M.daysSince = iso => { if (!iso) return null; const [y, m, d] = iso.split('-').map(Number); return Math.round((new Date(new Date().toDateString()) - new Date(y, m - 1, d)) / 86400000); };
 
   // ---------------- cache (cleared on every commit) ----------------
   let cache = {};
@@ -31,54 +32,45 @@
   const memo = (k, fn) => (k in cache) ? cache[k] : (cache[k] = fn());
 
   // ---------------- accounts & snapshots ----------------
+  // A snapshot is either per-account (`balances`) or, for months before Aug 2026, savings/current
+  // `totals` from the sheet plus asset `balances` (house, shares) only.
   M.acc = (s, id) => s.accounts.find(a => a.id === id);
-  M.liquidAccounts = s => s.accounts.filter(a => (a.bucket === 'savings' || a.bucket === 'current'));
   M.activeAccounts = (s, bucket) => s.accounts.filter(a => !a.archived && (!bucket || a.bucket === bucket));
+  M.checkinAccounts = s => s.accounts.filter(a => !a.archived && a.bucket !== 'asset');
   M.snap = (s, ym) => s.snapshots.find(x => x.month === ym);
-  M.detailSnaps = s => s.snapshots.filter(x => x.balances);
+  M.detailSnaps = s => s.snapshots.filter(x => x.balances && !x.totals);
 
   M.snapTotals = (s, snap) => {
     if (!snap) return null;
-    if (snap.balances){
-      const t = { savings: 0, current: 0, assets: 0, hasAssets: false };
-      for (const [id, v] of Object.entries(snap.balances)){
-        const a = M.acc(s, id); if (!a || v == null || isNaN(v)) continue;
-        if (a.bucket === 'savings') t.savings += v;
-        else if (a.bucket === 'current') t.current += v;
-        else { t.assets += v; t.hasAssets = true; }
-      }
-      t.liquid = t.savings + t.current; return t;
-    }
-    const t = snap.totals || {};
-    return { savings: t.savings || 0, current: t.current || 0, liquid: (t.savings || 0) + (t.current || 0), assets: 0, hasAssets: false };
+    const t = { savings: 0, current: 0, assets: 0, hasAssets: false, byAsset: {} };
+    Object.entries(snap.balances || {}).forEach(([id, v]) => {
+      const a = M.acc(s, id); if (!a || v == null || isNaN(v)) return;
+      if (a.bucket === 'asset'){ t.assets += v; t.hasAssets = true; t.byAsset[id] = v; }
+      else if (!snap.totals){ if (a.bucket === 'savings') t.savings += v; else t.current += v; }
+    });
+    if (snap.totals){ t.savings = snap.totals.savings || 0; t.current = snap.totals.current || 0; }
+    t.liquid = t.savings + t.current;
+    return t;
   };
 
-  // Continuous month-by-month timeline. Months with no record are filled by straight-line
-  // interpolation and flagged `est`, so a missed month spreads its change rather than showing a fake flat line.
+  // Continuous month-by-month timeline. A month that was never logged repeats the previous month's figures.
   M.timeline = s => memo('tl', () => {
     const snaps = s.snapshots.filter(x => x.balances || x.totals);
     if (!snaps.length) return [];
     const first = snaps[0].month, last = snaps[snaps.length - 1].month;
     const rec = {}; snaps.forEach(x => rec[x.month] = x);
-    const out = [];
+    const out = []; let prev = null;
     for (let m = first; m <= last; m = M.addM(m, 1)){
       const sn = rec[m];
-      if (sn){ const t = M.snapTotals(s, sn); out.push({ m, savings: t.savings, current: t.current, liquid: t.liquid, assets: t.hasAssets ? t.assets : null, est: false, snap: sn }); }
-      else out.push({ m, est: true });
+      if (sn){ const t = M.snapTotals(s, sn); prev = { m, savings: t.savings, current: t.current, liquid: t.liquid, byAsset: t.byAsset, snap: sn }; out.push(prev); }
+      else out.push({ ...prev, m, snap: null, carried: true });
     }
-    for (let i = 0; i < out.length; i++){
-      if (!out[i].est) continue;
-      let a = i - 1; while (a >= 0 && out[a].est) a--;
-      let b = i + 1; while (b < out.length && out[b].est) b++;
-      const f = (i - a) / (b - a);
-      ['savings','current'].forEach(k => out[i][k] = out[a][k] + (out[b][k] - out[a][k]) * f);
-      out[i].liquid = out[i].savings + out[i].current;
-      out[i].assets = null;
-    }
+    // assets: carry the last known value of each forward
+    const lastA = {};
+    out.forEach(p => { Object.assign(lastA, p.byAsset || {}); p.assetsBy = { ...lastA }; p.assets = Object.values(lastA).reduce((a, b) => a + b, 0); p.netWorth = p.liquid + p.assets; });
     const ev = {}; (s.events || []).forEach(e => { if (e.month) ev[e.month] = (ev[e.month] || 0) + (Number(e.amount) || 0); });
     out.forEach((p, i) => {
       p.change = i ? p.liquid - out[i - 1].liquid : null;
-      p.changeEst = i ? (p.est || out[i - 1].est) : false;
       p.oneOff = ev[p.m] || 0;
       p.underlying = p.change == null ? null : p.change - p.oneOff;
     });
@@ -98,7 +90,6 @@
   M.point = (s, ym) => M.timeline(s).find(p => p.m === ym) || null;
   M.lastRecordedMonth = s => { const r = s.snapshots.filter(x => x.balances || x.totals); return r.length ? r[r.length - 1].month : null; };
 
-  // Latest known value of each asset (house, shares), carried forward.
   M.assetValues = s => memo('assets', () => {
     const out = {};
     s.accounts.filter(a => a.bucket === 'asset' && !a.archived).forEach(a => {
@@ -108,42 +99,73 @@
     });
     return out;
   });
-  M.netWorth = s => { const l = M.latest(s); if (!l) return null; const a = Object.values(M.assetValues(s)).reduce((t, x) => t + x.value, 0); return l.liquid + a; };
+  M.netWorth = s => { const l = M.latest(s); if (!l) return null; return l.liquid + Object.values(M.assetValues(s)).reduce((t, x) => t + x.value, 0); };
 
-  // Per-account history from detailed snapshots only.
-  M.accountSeries = (s, id) => M.detailSnaps(s).filter(x => x.balances[id] != null).map(x => ({ m: x.month, v: x.balances[id], date: x.date }));
-  M.accountNow = (s, id) => { const ser = M.accountSeries(s, id); return ser.length ? ser[ser.length - 1] : null; };
-  M.accountPrev = (s, id) => { const ser = M.accountSeries(s, id); return ser.length > 1 ? ser[ser.length - 2] : null; };
+  M.accountSeries = (s, id) => s.snapshots.filter(x => x.balances && x.balances[id] != null).map(x => ({ m: x.month, v: x.balances[id], date: M.updatedOn(x, id) }));
 
-  // Account deltas between the last two detailed snapshots.
-  M.movers = s => memo('movers', () => {
-    const d = M.detailSnaps(s); if (d.length < 2) return [];
+  // ---------------- check-in tracking ----------------
+  // snapshot.updated = { accountId: 'YYYY-MM-DD' } records when each account was confirmed for that month.
+  // Older snapshots have no map, so every account in them counts as updated on the snapshot date.
+  M.updatedOn = (snap, id) => {
+    if (!snap || !snap.balances || snap.balances[id] == null) return null;
+    if (snap.updated) return snap.updated[id] || null;
+    return snap.date || (snap.month + '-01');
+  };
+  M.lastUpdate = (s, id) => {
+    for (let i = s.snapshots.length - 1; i >= 0; i--){ const d = M.updatedOn(s.snapshots[i], id); if (d) return { m: s.snapshots[i].month, date: d }; }
+    return null;
+  };
+  M.checkin = (s, ym) => {
+    const snap = M.snap(s, ym);
+    const rows = M.checkinAccounts(s).map(a => ({ acc: a, on: M.updatedOn(snap, a.id), last: M.lastUpdate(s, a.id) }));
+    const done = rows.filter(r => r.on).length;
+    const cl = (s.checklist || {})[ym] || {};
+    const balancesDone = done === rows.length || !!cl.balances;
+    const items = [
+      { id: 'balances', label: 'Update every account balance', auto: true, done: balancesDone, detail: `${done} of ${rows.length}` },
+      { id: 'change', label: 'Check the monthly change', done: !!cl.change, tab: 'trends' },
+      { id: 'oneoffs', label: 'Log any one-offs (big one-time spends or windfalls)', done: !!cl.oneoffs, tab: 'planner' },
+      { id: 'budget', label: 'Update the budget if anything changed', done: !!cl.budget, tab: 'budget' },
+    ];
+    return { month: ym, snap, rows, done, total: rows.length, items, complete: items.every(i => i.done), started: done > 0 };
+  };
+
+  // Account deltas between the last two per-account snapshots, with transfers netted out.
+  M.moves = s => memo('moves', () => {
+    const d = M.detailSnaps(s); if (d.length < 2) return { rows: [], transfers: [], from: null, to: null };
     const a = d[d.length - 2], b = d[d.length - 1];
-    return s.accounts.filter(x => x.bucket !== 'asset').map(x => ({ acc: x, from: a.balances[x.id] ?? 0, to: b.balances[x.id] ?? 0 }))
-      .map(r => ({ ...r, d: r.to - r.from })).filter(r => Math.abs(r.d) >= 1).sort((p, q) => Math.abs(q.d) - Math.abs(p.d));
+    let rows = s.accounts.filter(x => x.bucket !== 'asset').map(x => ({ acc: x, from: a.balances[x.id] ?? 0, to: b.balances[x.id] ?? 0 })).map(r => ({ ...r, d: r.to - r.from })).filter(r => Math.abs(r.d) >= 1);
+    // pair an outflow with an inflow of about the same size (within 5%) as a transfer between your own accounts
+    const transfers = [], used = new Set();
+    const big = rows.filter(r => Math.abs(r.d) >= 500).sort((p, q) => Math.abs(q.d) - Math.abs(p.d));
+    big.forEach(out => {
+      if (out.d >= 0 || used.has(out.acc.id)) return;
+      const match = big.find(inn => inn.d > 0 && !used.has(inn.acc.id) && Math.abs(inn.d + out.d) <= 0.05 * Math.max(inn.d, -out.d));
+      if (match){ const amt = Math.min(match.d, -out.d); transfers.push({ from: out.acc, to: match.acc, amount: amt }); used.add(out.acc.id); used.add(match.acc.id); out.rest = out.d + amt; match.rest = match.d - amt; }
+    });
+    rows.forEach(r => { r.net = r.rest != null ? r.rest : r.d; });
+    rows = rows.sort((p, q) => Math.abs(q.net) - Math.abs(p.net));
+    return { rows, transfers, from: a.month, to: b.month };
   });
 
   // ---------------- tags ----------------
   M.tag = (s, id) => s.tags.find(t => t.id === id);
   M.tagAccounts = (s, tagId) => s.accounts.filter(a => a.tags.includes(tagId) && !a.archived);
-  M.tagTotalAt = (s, tagId, snap) => {
-    if (!snap || !snap.balances) return null;
-    return M.tagAccounts(s, tagId).reduce((t, a) => t + (snap.balances[a.id] || 0), 0);
-  };
-  M.tagSeries = (s, tagId) => M.detailSnaps(s).map(x => ({ m: x.month, v: M.tagTotalAt(s, tagId, x) }));
+  M.tagTotalAt = (s, tagId, snap) => (!snap || !snap.balances || snap.totals) ? null : M.tagAccounts(s, tagId).reduce((t, a) => t + (snap.balances[a.id] || 0), 0);
   M.untaggedAccounts = s => s.accounts.filter(a => !a.archived && a.bucket !== 'asset' && !a.tags.length);
 
   // ---------------- budget ----------------
   M.KINDS = [
-    { id:'income', name:'Income', sign: 1 }, { id:'bonus', name:'Bonus', sign: 1 },
-    { id:'fixed', name:'Fixed', sign: -1 }, { id:'living', name:'Living', sign: -1 }, { id:'extra', name:'Extras', sign: -1 },
-    { id:'saving', name:'To savings', sign: 0 }, { id:'off', name:'Not active', sign: 0 },
+    { id:'income', name:'Income' }, { id:'bonus', name:'Bonus' },
+    { id:'fixed', name:'Fixed' }, { id:'living', name:'Living' }, { id:'extra', name:'Extras' },
+    { id:'saving', name:'To savings' }, { id:'off', name:'Not active' },
   ];
+  M.OUT = ['fixed','living','extra'];
   M.kindName = k => (M.KINDS.find(x => x.id === k) || {}).name || k;
   M.years = s => s.budget.years.slice().sort();
-  // A month in a year we haven't budgeted uses the nearest earlier year (or the first one).
   M.budgetYear = (s, y) => { const ys = M.years(s); let best = ys[0]; ys.forEach(v => { if (v <= y) best = v; }); return best; };
   M.amt = (line, y) => Number(line.amounts && line.amounts[y]) || 0;
+  // Monthly-equivalent totals for a year (a bonus paid once still counts as 1/12 a month here).
   M.plan = (s, year) => memo('plan' + year, () => {
     const y = M.budgetYear(s, year);
     const t = { year: y, income: 0, bonus: 0, fixed: 0, living: 0, extra: 0, saving: 0 };
@@ -154,22 +176,45 @@
     t.netExBonus = t.income - t.outgoings;
     return t;
   });
+  // What a line actually pays in a given calendar month: monthly, or lumped into chosen months.
+  M.lineInMonth = (line, ym, monthly) => {
+    const pm = line.payMonths;
+    if (!pm || !pm.length) return monthly;
+    return pm.includes(M.monthNum(ym)) ? monthly * 12 / pm.length : 0;
+  };
+  // Plan for one calendar month. Past months use the sheet's own month-by-month model (planHistory),
+  // because the budget's active/inactive flags describe today, not 2023-24 (flat rent, Hillend etc.).
+  M.planMonth = (s, ym) => memo('pm' + ym, () => {
+    const h = s.planHistory && s.planHistory[ym];
+    if (h && ym < M.thisMonth()) return { inflow: h.inflow, outgoings: h.outgoings, net: h.inflow - h.outgoings, groups: h.groups, source: 'sheet' };
+    const y = M.budgetYear(s, M.yearOf(ym));
+    const r = { inflow: 0, outgoings: 0, groups: {}, source: 'budget' };
+    s.budget.lines.forEach(l => {
+      if (l.kind === 'off') return;
+      const v = M.lineInMonth(l, ym, M.amt(l, y));
+      if (l.kind === 'income' || l.kind === 'bonus') r.inflow += v;
+      else if (M.OUT.includes(l.kind)){ r.outgoings += v; r.groups[l.groupId] = (r.groups[l.groupId] || 0) + v; }
+      else if (l.kind === 'saving'){ r.groups[l.groupId] = (r.groups[l.groupId] || 0) + v; }
+    });
+    r.net = r.inflow - r.outgoings;
+    return r;
+  });
   M.groupTotal = (s, gid, y, kinds) => s.budget.lines.filter(l => l.groupId === gid && (!kinds || kinds.includes(l.kind))).reduce((t, l) => t + M.amt(l, y), 0);
+  M.spendGroups = s => s.budget.groups.filter(g => s.budget.lines.some(l => l.groupId === g.id && (M.OUT.includes(l.kind) || l.kind === 'saving')) || Object.values(s.planHistory || {}).some(h => h.groups && h.groups[g.id]));
 
   // ---------------- months of cover ----------------
-  // Same method as the sheet's "general costs" tab: (liquid + fund adjustments) / (fixed + living [+ extras] + cost adjustments).
+  // One definition everywhere: (liquid funds + fund adjustments) ÷ (planning-year fixed + living
+  // [+ extras] + cost adjustments). Same method as the sheet's "general costs" D57.
+  M.coverCosts = s => { const c = s.coverage, p = M.plan(s, s.settings.planYear); return p.fixed + p.living + (c.includeExtras ? p.extra : 0) + c.costAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0); };
   M.coverage = (s, opts = {}) => {
-    const c = s.coverage, y = opts.year || s.settings.planYear;
-    const p = M.plan(s, y), l = M.latest(s);
+    const c = s.coverage, p = M.plan(s, s.settings.planYear), l = M.latest(s);
     const liquid = opts.liquid != null ? opts.liquid : (l ? l.liquid : 0);
     const fundAdj = c.fundAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0);
     const costAdj = c.costAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0);
-    const incl = opts.includeExtras != null ? opts.includeExtras : c.includeExtras;
-    const costs = p.fixed + p.living + (incl ? p.extra : 0) + costAdj + (opts.extraMonthly || 0);
+    const costs = M.coverCosts(s) + (opts.extraMonthly || 0);
     const funds = liquid + fundAdj + (opts.extraFunds || 0);
     return { funds, costs, liquid, fundAdj, costAdj, months: costs > 0 ? funds / costs : null, plan: p };
   };
-  // Access ladder: current accounts, then savings, with a "slow" tag (e.g. market-linked) last.
   M.ladder = s => {
     const d = M.detailSnaps(s); const snap = d[d.length - 1]; if (!snap) return null;
     const slow = s.coverage.slowTagId;
@@ -181,7 +226,8 @@
     });
     return tiers.filter(t => t.v !== 0 || t.label !== 'Other');
   };
-  M.coverSeries = s => M.timeline(s).map(p => { const pl = M.plan(s, M.yearOf(p.m)); const c = pl.fixed + pl.living; return { m: p.m, v: c > 0 ? p.liquid / c : null, est: p.est }; });
+  // Same cost basis as the headline, so the last point matches it (fund adjustments only apply to today).
+  M.coverSeries = s => { const c = M.coverCosts(s), tl = M.timeline(s); const fa = s.coverage.fundAdjustments.reduce((t, x) => t + (Number(x.amount) || 0), 0); return tl.map((p, i) => ({ m: p.m, v: c > 0 ? (p.liquid + (i === tl.length - 1 ? fa : 0)) / c : null })); };
 
   // ---------------- year summaries ----------------
   M.yearSummary = s => memo('ys', () => {
@@ -191,28 +237,33 @@
       const pts = by[y], firstI = pts[0].i;
       const start = firstI > 0 ? tl[firstI - 1].liquid : pts[0].liquid;
       const end = pts[pts.length - 1].liquid;
-      const ch = pts.filter(p => p.change != null && (p.i > 0));
+      const ch = pts.filter(p => p.change != null && p.i > 0);
       const worst = ch.reduce((w, p) => (!w || p.underlying < w.underlying) ? p : w, null);
       const best = ch.reduce((w, p) => (!w || p.underlying > w.underlying) ? p : w, null);
-      return { year: Number(y), start, end, change: end - start, months: ch.length, avg: ch.length ? ch.reduce((t, p) => t + p.underlying, 0) / ch.length : null, worst, best, partial: firstI === 0 || pts.length < 12, firstM: pts[0].m, startM: firstI > 0 ? tl[firstI - 1].m : pts[0].m, endM: pts[pts.length - 1].m };
+      return { year: Number(y), start, end, change: end - start, months: ch.length, avg: ch.length ? ch.reduce((t, p) => t + p.underlying, 0) / ch.length : null, worst, best, partial: firstI === 0 || pts.length < 12, firstM: pts[0].m, endM: pts[pts.length - 1].m };
     });
   });
 
   // ---------------- projection & scenarios ----------------
   M.scenarioTotals = sc => sc.items.reduce((t, it) => { const a = Number(it.amount) || 0; if (it.type === 'monthly') t.monthly += a; else t.oneoff += a; return t; }, { oneoff: 0, monthly: 0 });
-  M.projection = (s, opts) => {
-    const l = M.latest(s); if (!l) return null;
-    const months = opts.months || 24;
-    const rate = opts.rate === 'plan' ? M.plan(s, s.settings.planYear).net : (M.avgChange(s, 6) || 0);
+  // Looks back `back` months (actual) and forward `fwd` months along three paths.
+  M.projection = (s, back = 24, fwd = 24) => {
+    const tl = M.timeline(s), l = M.latest(s); if (!l) return null;
+    const hist = tl.slice(-(back + 1));
+    const trend = M.avgChange(s, 6) || 0;
     const up = {}; (s.upcoming || []).forEach(u => { if (!u.date) return; const k = u.date.slice(0, 7); up[k] = (up[k] || 0) + (Number(u.amount) || 0); });
     const act = (s.scenarios || []).filter(x => x.active).map(M.scenarioTotals).reduce((t, x) => ({ oneoff: t.oneoff + x.oneoff, monthly: t.monthly + x.monthly }), { oneoff: 0, monthly: 0 });
-    const labels = [], base = [], withS = [];
-    let b = l.liquid, w = l.liquid;
-    for (let i = 0; i <= months; i++){
-      const m = M.addM(l.m, i); labels.push(m);
-      if (i > 0){ b += rate + (up[m] || 0); w += rate + act.monthly + (up[m] || 0) + (i === 1 ? act.oneoff : 0); }
-      base.push(b); withS.push(w);
+    const labels = hist.map(p => p.m), actual = hist.map(p => p.liquid);
+    const pad0 = () => new Array(hist.length - 1).fill(null);
+    const tr = pad0().concat([l.liquid]), bp = pad0().concat([l.liquid]), wi = pad0().concat([l.liquid]);
+    let t = l.liquid, b = l.liquid, w = l.liquid;
+    const planNet = [];
+    for (let i = 1; i <= fwd; i++){
+      const m = M.addM(l.m, i); labels.push(m); actual.push(null);
+      const pm = M.planMonth(s, m).net; planNet.push(pm);
+      t += trend + (up[m] || 0); b += pm + (up[m] || 0); w += pm + act.monthly + (up[m] || 0) + (i === 1 ? act.oneoff : 0);
+      tr.push(t); bp.push(b); wi.push(w);
     }
-    return { labels, base, withS, rate, act, hasScenarios: act.oneoff !== 0 || act.monthly !== 0, hasUpcoming: Object.keys(up).length > 0 };
+    return { labels, actual, trend: tr, budget: bp, withS: wi, trendRate: trend, now: hist.length - 1, act, hasScenarios: act.oneoff !== 0 || act.monthly !== 0, hasUpcoming: Object.keys(up).length > 0, avgPlan: planNet.slice(0, 12).reduce((a, b) => a + b, 0) / Math.max(1, Math.min(12, planNet.length)) };
   };
 })();

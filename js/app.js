@@ -26,12 +26,21 @@
     close: ic('<path d="M6 6l12 12M18 6L6 18"/>'),
     caret: ic('<path d="M6 9l6 6 6-6"/>'),
     table: ic('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/>'),
+    menu: ic('<path d="M4 7h16M4 12h16M4 17h16"/>'),
+    sun: ic('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>'),
+    moon: ic('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),
+    checkin: ic('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>'),
+    tag: ic('<path d="M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9z"/><circle cx="8" cy="8" r="1.4"/>'),
+    bolt: ic('<path d="M13 3L5 13.5h6L10 21l9-11h-6z"/>'),
+    bell: ic('<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
+    lock: ic('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>'),
   };
   const TABS = [['overview','Overview'],['accounts','Accounts'],['budget','Budget'],['trends','Trends'],['planner','Planner']];
 
   // ---------------- UI prefs (per device) ----------------
   let saved = {}; try { saved = JSON.parse(L.safeLS.get(L.CFG.uiKey) || '{}'); } catch(e){}
-  const UI = L.ui = Object.assign({ tab:'overview', range:'3y', measure:'liquid', roll:6, budgetYear:null, groupBy:'bucket', showInactive:false, collapsed:{}, strip:true, projRate:'trend', theme:'dark', planView:null }, saved);
+  const UI = L.ui = Object.assign({ tab:'overview', range:'3y', measure:'liquid', roll:6, budgetYear:null, groupBy:'bucket', showInactive:false, collapsed:{}, strip:true, theme:'dark', planView:null, off:{ balance:['savings','current'] }, spendRange:'2y', menu:false }, saved);
+  if (!UI.off) UI.off = {};
   L.saveUI = () => L.safeLS.set(L.CFG.uiKey, JSON.stringify(UI));
   const applyTheme = () => document.documentElement.setAttribute('data-theme', UI.theme || 'dark');
   applyTheme();
@@ -58,9 +67,26 @@
     const page = L.pages[UI.tab] || L.pages.overview;
     const root = $('page');
     root.innerHTML = page.render();
-    document.querySelectorAll('[data-tab]').forEach(b => { const on = b.dataset.tab === UI.tab; b.classList.toggle('on', on); b.setAttribute('aria-current', on ? 'page' : 'false'); });
+    renderNav();
     L.mountCharts(root);
   };
+  function renderNav(){
+    const ci = M.checkin(L.S, M.thisMonth()), out = ci.total - ci.done, due = out > 0;
+    const btn = ([id, n]) => `<button data-act="tab" data-tab="${id}" class="${UI.tab === id ? 'on' : ''}" ${UI.tab === id ? 'aria-current="page"' : ''}>${L.icons[id]}<span>${n}</span>${id === 'overview' && due ? '<i class="dot-badge" aria-label="Check-in due"></i>' : ''}</button>`;
+    $('bottomnav').innerHTML = TABS.map(btn).join('');
+    $('side-nav').innerHTML = TABS.map(([id, n]) => `<button data-act="tab" data-tab="${id}" class="${UI.tab === id ? 'on' : ''}">${L.icons[id]}<span>${n}</span>${id === 'overview' && due ? `<span class="nbadge">${out} to update</span>` : ''}</button>`).join('');
+    $('side-actions').innerHTML = `<span class="lbl">Quick actions</span>
+      <button class="si" data-act="logBalances">${L.icons.checkin}<span>${M.lbl(M.thisMonth(), 'month')} check-in</span>${out ? `<span class="nbadge">${ci.done}/${ci.total}</span>` : ''}</button>
+      <button class="si" data-act="quickOneOff">${L.icons.bolt}<span>Log a one-off</span></button>
+      <button class="si" data-act="manageTags">${L.icons.tag}<span>Manage tags</span></button>
+      <button class="si" data-act="reminder">${L.icons.bell}<span>Monthly reminder</span></button>`;
+    $('side-foot').innerHTML = `<div class="seg" role="group" aria-label="Theme">${[['dark','Dark'],['light','Light'],['system','Auto']].map(([v, n]) => `<button class="${UI.theme === v ? 'on' : ''}" data-act="theme" data-v="${v}">${n}</button>`).join('')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="settings">${L.icons.settings.replace('<svg', '<svg width="15" height="15"')}Settings</button>${L.PREVIEW ? '' : `<button class="btn sm" data-act="lock">${L.icons.lock.replace('<svg', '<svg width="15" height="15"')}Lock</button>`}</div>`;
+    $('theme-btn').innerHTML = isDark() ? L.icons.sun : L.icons.moon;
+    // home-screen icon badge (installed app, where supported)
+    try { if ('setAppBadge' in navigator){ if (due && out) navigator.setAppBadge(out); else navigator.clearAppBadge(); } } catch(e){}
+  }
+  const isDark = () => UI.theme === 'dark' || (UI.theme === 'system' && !matchMedia('(prefers-color-scheme: light)').matches);
 
   // ---------------- charts registry ----------------
   L.specs = {};
@@ -71,12 +97,16 @@
   function drawChart(el){ const sp = L.spec(el.dataset.chart); if (!sp || !el.isConnected) return; try { sp.draw(el, el.dataset.big === '1'); } catch(err){ console.error(err); el.innerHTML = '<div class="empty">Chart failed to draw</div>'; } }
   L.mountCharts = root => root.querySelectorAll('[data-chart]').forEach(el => { el._w = Math.floor(el.clientWidth); drawChart(el); if (ro) ro.observe(el); });
 
+  // Tick-box pills: which series a chart shows. Stored per chart, per device.
+  const baseKey = key => key.split(':')[0];
+  L.vis = (key, id) => !((UI.off[baseKey(key)] || []).includes(String(id)));
+  L.pillsHtml = (key, items) => `<div class="pills" role="group" aria-label="Show or hide">${items.map(i => { const on = L.vis(key, i.id); return `<button class="pill ${on ? 'on' : ''}" style="--c:${i.color}" data-act="pill" data-key="${baseKey(key)}" data-id="${esc(i.id)}" aria-pressed="${on}"><span class="tk"></span>${esc(i.name)}</button>`; }).join('')}</div>`;
   L.chartCard = (key, o = {}) => {
     const sp = L.spec(key);
     return `<section class="card ${o.cls || ''}">
       <div class="card-head"><div><h2>${esc(o.title || sp.title)}</h2>${(o.sub || sp.sub) ? `<div class="sub">${o.sub || sp.sub}</div>` : ''}</div>
         <div class="actions">${o.actions || ''}<button class="icon-btn" data-act="expand" data-key="${key}" aria-label="Open larger with table">${L.icons.expand}</button></div></div>
-      ${o.controls || ''}${sp.legend ? sp.legend(false) : ''}
+      ${o.controls || ''}${sp.pills ? L.pillsHtml(key, sp.pills) : (sp.legend ? sp.legend(false) : '')}
       <div class="chart" data-chart="${key}"></div>
       ${sp.readout ? sp.readout() : ''}${o.after || ''}
     </section>`;
@@ -109,7 +139,18 @@
   L.coll = path => path.split('.').reduce((o, seg) => o == null ? o : (seg[0] === '#' ? o.find(x => x.id === seg.slice(1)) : o[seg]), L.S);
 
   L.acts = {
-    tab(el){ UI.tab = el.dataset.tab; L.saveUI(); L.render(); window.scrollTo({ top: 0 }); },
+    tab(el){ UI.tab = el.dataset.tab; L.saveUI(); closeMenu(); L.render(); window.scrollTo({ top: 0 }); },
+    menu(){ const s = $('side'); s.classList.toggle('open'); },
+    toggleTheme(){ UI.theme = isDark() ? 'light' : 'dark'; L.saveUI(); applyTheme(); L.render(); if (L.modal.isOpen) L.modal.refresh(); },
+    pill(el){
+      const k = el.dataset.key, id = String(el.dataset.id), list = UI.off[k] = UI.off[k] || [];
+      const i = list.indexOf(id);
+      if (i >= 0) list.splice(i, 1);
+      else { if (el.parentElement.querySelectorAll('.pill.on').length <= 1){ L.toast('Keep at least one showing'); return; } list.push(id); }
+      L.saveUI(); L.render(); if (L.modal.isOpen) L.modal.refresh();
+    },
+    tick(el){ const ym = el.dataset.m, k = el.dataset.k; L.commit(s => { s.checklist = s.checklist || {}; const c = s.checklist[ym] = s.checklist[ym] || {}; c[k] = !c[k]; }); },
+    reminder(){ downloadReminder(); },
     set(el){ const k = el.dataset.k; let v = el.dataset.v; if (/^-?\d+$/.test(v)) v = Number(v); if (v === 'true') v = true; if (v === 'false') v = false; UI[k] = v; L.saveUI(); L.render(); if (L.modal.isOpen) L.modal.refresh(); },
     toggleGroup(el){ const k = el.dataset.k; UI.collapsed[k] = !UI.collapsed[k]; L.saveUI(); el.closest('.group').classList.toggle('collapsed', !!UI.collapsed[k]); },
     expand(el){ L.openChart(el.dataset.key); },
@@ -123,7 +164,7 @@
       L.commit(() => { const a = L.coll(el.dataset.coll); const i = a.findIndex(x => x.id === el.dataset.id); if (i >= 0) a.splice(i, 1); }, { modal: L.modal.isOpen && el.closest('#modal') });
     },
     settings(){ openSettings(); },
-    theme(el){ UI.theme = el.dataset.v; L.saveUI(); applyTheme(); L.render(); L.modal.refresh(); },
+    theme(el){ UI.theme = el.dataset.v; L.saveUI(); applyTheme(); L.render(); if (L.modal.isOpen) L.modal.refresh(); },
     lock(){ L.store.lock(); },
     resetPreview(){ if (confirm('Reset the preview back to the spreadsheet data? Your preview edits will be lost.')) L.resetPreview(); },
     backup(){
@@ -152,9 +193,28 @@
     const fn = L.edits[el.dataset.edit]; if (fn) fn(el, ev);
   });
   document.addEventListener('keydown', ev => {
-    if (ev.key === 'Escape' && L.modal.isOpen) L.modal.close();
+    if (ev.key === 'Escape'){ if (L.modal.isOpen) L.modal.close(); else closeMenu(); }
     if (ev.key === 'Enter' && ev.target.matches('.inline-num, .inline-text, .edit-list .input')) ev.target.blur();
   });
+
+  function closeMenu(){ const s = $('side'); if (s) s.classList.remove('open'); }
+  L.closeMenu = closeMenu;
+
+  // A recurring calendar event works on every phone with no server: 9am on the 1st, nudge again on the 3rd.
+  function downloadReminder(){
+    const now = new Date(), y = now.getFullYear(), m = now.getMonth() + 2 > 12 ? 1 : now.getMonth() + 2, yy = m === 1 ? y + 1 : y;
+    const d = `${yy}${String(m).padStart(2, '0')}01`, url = location.origin + location.pathname;
+    const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Seligman Ledger//EN','BEGIN:VEVENT',
+      'UID:ledger-monthly-checkin@seligman', 'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z',
+      `DTSTART:${d}T090000`, `DTEND:${d}T091500`, 'RRULE:FREQ=MONTHLY;BYMONTHDAY=1',
+      'SUMMARY:Ledger check-in: update account balances', `DESCRIPTION:Open the Seligman Ledger and log this month's balances: ${url}`, `URL:${url}`,
+      'BEGIN:VALARM','TRIGGER:PT0M','ACTION:DISPLAY','DESCRIPTION:Ledger check-in','END:VALARM',
+      'BEGIN:VALARM','TRIGGER:P2D','ACTION:DISPLAY','DESCRIPTION:Ledger check-in still to do?','END:VALARM',
+      'END:VEVENT','END:VCALENDAR'].join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' })); a.download = 'ledger-monthly-reminder.ics'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    L.toast('Open the downloaded file to add the reminder to your calendar');
+  }
 
   // ---------------- chart popup ----------------
   L.openChart = key => {
@@ -162,7 +222,7 @@
       const sp = L.spec(key);
       return {
         title: sp.title, sub: sp.sub,
-        body: `${sp.controls ? `<div class="filters">${sp.controls()}</div>` : ''}${sp.legend ? sp.legend(true) : ''}
+        body: `${sp.controls ? `<div class="filters">${sp.controls()}</div>` : ''}${sp.pills ? L.pillsHtml(key, sp.pills) : (sp.legend ? sp.legend(true) : '')}
           <div class="chart" data-chart="${key}" data-big="1"></div>${sp.readout ? sp.readout() : ''}
           ${sp.table ? `<div class="section"><h3>As a table</h3>${sp.table()}</div>` : ''}${sp.notes ? `<div class="note box">${sp.notes()}</div>` : ''}`,
       };
@@ -179,6 +239,7 @@
         title: 'Settings', narrow: true,
         body: `
           <div class="section"><h3>Look</h3><div class="seg">${themeSeg}</div></div>
+          <div class="section"><h3>Reminders</h3><div class="small muted" style="margin-bottom:8px">Adds a repeating event to your calendar: 9am on the 1st of each month, with a nudge two days later.</div><button class="btn" data-act="reminder">${L.icons.bell.replace('<svg', '<svg width="16" height="16"')}Add monthly reminder</button></div>
           <div class="section"><h3>Planning year</h3>
             <div class="small muted" style="margin-bottom:8px">Drives months of cover, the plan line on Trends and the projection.</div>
             <select class="input" data-edit="field" data-coll="settings" data-f="planYear" data-type="num" data-refresh="1">${years}</select></div>
@@ -213,9 +274,9 @@
   L.store.onRemote = s => { L.S = s; M.invalidate(); if (!editing() && !L.modal.isOpen) L.render(); else pending = true; };
 
   function buildShell(){
-    $('tabs').innerHTML = TABS.map(([id, n]) => `<button data-act="tab" data-tab="${id}">${L.icons[id]}<span>${n}</span></button>`).join('');
-    $('bottomnav').innerHTML = TABS.map(([id, n]) => `<button data-act="tab" data-tab="${id}">${L.icons[id]}<span>${n}</span></button>`).join('');
     $('settings-btn').innerHTML = L.icons.settings; $('modal-close').innerHTML = L.icons.close;
+    $('menu-btn').innerHTML = L.icons.menu; $('side-close').innerHTML = L.icons.close;
+    document.querySelector('.side').addEventListener('click', ev => { if (ev.target.closest('[data-act="logBalances"],[data-act="manageTags"],[data-act="quickOneOff"],[data-act="settings"]')) closeMenu(); });
     if (L.PREVIEW) $('preview-bar').classList.remove('hidden');
   }
   function enterApp(state){

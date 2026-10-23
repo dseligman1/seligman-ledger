@@ -26,6 +26,9 @@ around **monthly snapshots**:
 | One amount per budget category | `budget.lines[].amounts[year]`, matching the sheet's 2023–2027 columns, plus a `kind` |
 | House project as loose numbers | `house.summary / building / furnishings`, from "general costs in and out" |
 | — | `coverage` (months-of-cover adjustments), `scenarios` (what-ifs), `events` (one-offs), `upcoming`, `notes` |
+| — | `snapshots[].updated` {accountId: date}: when each account was confirmed that month (check-ins over several days) |
+| — | `checklist[month]` {balances, change, oneoffs, budget}: manual ticks; balances auto-ticks when all accounts updated |
+| — | `budget.lines[].payMonths` [1–12]: lump the monthly-average amount into specific months (bonus, annual bills) |
 
 ## Architecture
 
@@ -61,9 +64,14 @@ localStorage; Settings → Reset preview restores the seed.
 ## How the sheet maps in (importer: see `data/` notes)
 
 - **Rows 92–93 (Savings / Current actuals)** → `snapshots[].totals`, Aug 2023 → Jul 2026.
-  Skipped: Jul 2023 (formula = forecast), **Feb 2026** (cell is `=BD102`, i.e. the live panel, so the
-  real figure was never kept), **Jul 2026** (`=AU92`, a copy of June). These are listed in `gaps[]`
-  and are interpolated + flagged as estimated in charts.
+  Skipped Jul 2023 (formula = forecast). **Feb 2026** (cell is `=BD102`, the live panel) and
+  **Jul 2026** (`=AU92`, a copy of June) repeat the previous month. Dan asked for no "estimated"
+  flags (2026-10-23); any future unlogged month also repeats the month before (`M.timeline`).
+- **Rows 82–83 (house equity, MW shares)** → asset `balances` on every snapshot, so Other assets and
+  Net worth have full history. They're the sheet's model values, so still badged "est.".
+- **Rows 85, 87 and group subtotals (13, 23, 30, 37, 46, 49, 62)** → `planHistory[month]`. Used as the
+  plan for **past** months (`M.planMonth`), because budget-line kinds describe today (the flat rent,
+  Hillend etc. were active in 2023–24). From the current month on, the plan comes from the Budget tab.
 - **Panel AX102:BE118** → accounts (savings/current split taken from the `BD102`/`BD103` formulas)
   and per-account snapshots: Sep 2026 = "Last Month" column, Oct 2026 = "Current Month" column.
   **Aug 2026** per-account balances came from the v1 app's stored balances.
@@ -93,13 +101,37 @@ current = slot 2 (orange), up/down change = blue/red (diverging). Tags default t
 never clash with savings/current. No horizontal scrolling at any width; wide tables hide
 secondary columns below 560px (`.hide-sm`).
 
+## Definitions (one place for each)
+
+- **Months of cover** = (liquid + fund adjustments) ÷ (planning-year fixed + living [+ extras] + cost
+  adjustments). The chart over time uses the same denominator for every month; fund adjustments only
+  apply to the latest point, so the chart's last point equals the headline.
+- **Monthly change** = change in liquid funds. Transfers between own accounts net to zero; "What moved"
+  pairs an outflow and inflow within 5% of each other (≥£500) and shows them as a transfer.
+- **Plan for a month**: `planHistory` for past months, the budget (with `payMonths`) for now and the future.
+- **Projection**: actual for the last 12 or 24 months (solid), then 24 months dashed along (i) the 6-month
+  average trend, (ii) the budget month by month, (iii) the budget plus active what-ifs. Coming up items are added to all three.
+
+## UI patterns
+
+- Multi-series charts take `pills` (tick boxes) instead of a legend. Hidden series are per device in
+  `UI.off[chartKey]`, and the y-axis rescales to the visible series.
+- Navigation: sidebar ≥1100px; hamburger drawer below that; bottom tab bar below 900px. Theme toggle
+  in the header (sun/moon) and in the menu (Dark/Light/Auto).
+- Reminders: Settings or menu → "Monthly reminder" downloads a repeating `.ics` (9am on the 1st, nudge
+  2 days later). The home-screen icon badge shows accounts left to update where supported.
+
 ## Status as of 2026-10-23
 
-v2 built, tested (headless Chrome at 390px and 1280px: no overflow, no JS errors; workflows
-checked numerically), deployed with the sheet data encrypted into `ledger.json`.
+v2.1 (same day, Dan's first feedback): tick-box pills on charts, check-in tracking per account with
+checklist, bonus months, spend-by-group charts, projection with history, asset history, net worth chart,
+transfer netting, side menu, header theme toggle. Tested at 390px and 1280px in headless Chrome,
+including a simulated 3 Nov multi-day check-in.
 
 ### Next steps / ideas
 - Dan's feedback pass on the preview.
 - Wife's device: same token + PIN; first unlock pulls `ledger.json`.
 - Possible: per-account history before Aug 2026 could be recovered from old copies of the sheet, if any exist.
-- Possible: CSV export of the monthly table; reminders on check-in day (would need a push service).
+- Possible: real push notifications (needs a service worker, VAPID keys and a scheduled GitHub Action
+  to send them; iPhone needs the app added to the home screen). Calendar reminder is the no-server version.
+- Possible: CSV export of the monthly table.

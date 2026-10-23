@@ -148,6 +148,8 @@
     s.coverage = Object.assign({ includeExtras:false, fundAdjustments:[], costAdjustments:[], slowTagId: null }, s.coverage || {});
     s.house = Object.assign({ summary:[], building:[], furnishings:[], buildingPaid: null }, s.house || {});
     if (typeof s.notes !== 'string') s.notes = '';
+    if (!s.planHistory || typeof s.planHistory !== 'object') s.planHistory = {};
+    if (!s.checklist || typeof s.checklist !== 'object') s.checklist = {};
     s.accounts.forEach(a => { if (!Array.isArray(a.tags)) a.tags = []; });
     s.snapshots.sort((a, b) => a.month < b.month ? -1 : 1);
     return s;
