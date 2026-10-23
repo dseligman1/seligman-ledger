@@ -149,6 +149,27 @@ secondary columns below 560px (`.hide-sm`).
 - GitHub can delay scheduled runs by some minutes, and pauses schedules in public repos after 60 days
   without commits (each save is a commit, so monthly use keeps it alive).
 
+## Backups (monthly, automatic)
+
+Every save is already a commit, so `git log ledger.json` holds every version. On top of that, two
+monthly copies on the 7th guard against deleted files, a rewritten history or a lost repo:
+
+1. **GitHub** (`.github/workflows/backup.yml`, 06:00 UTC on the 7th): a Release `backup-YYYY-MM-DD`
+   with `seligman-ledger-<date>.bundle` (the whole repo, every commit), `ledger-<date>.json` and
+   `data-v1-<date>.json` (both encrypted). See github.com/dseligman1/seligman-ledger/releases.
+2. **Dan's Mac** (launchd `~/Library/LaunchAgents/com.seligman.ledger-backup.plist` →
+   `~/Library/Scripts/seligman-ledger-backup.sh`): daily 10am + at login, acts once a month on/after
+   the 7th, so it catches up if the Mac was off. Saves to `~/Backups/seligman-ledger/<date>/` a
+   bundle cloned fresh from GitHub plus `ledger.json`. Kept outside ~/Documents because macOS blocks
+   scheduled jobs there; run `zsh ~/Library/Scripts/seligman-ledger-backup.sh --now` by hand to also
+   zip the project folder (which includes the unencrypted preview seed). Log: `backup.log`.
+
+**Restore**
+- Whole repo: `git clone seligman-ledger-<date>.bundle seligman-ledger` gives a full working copy
+  with history; push it to a new or emptied GitHub repo.
+- Just the data: copy `ledger-<date>.json` over `ledger.json` in the repo and commit + push. The
+  app picks it up on the next unlock. Same PIN as when it was saved.
+
 ## Status as of 2026-10-23
 
 v2.1 (same day, Dan's first feedback): tick-box pills on charts, check-in tracking per account with
