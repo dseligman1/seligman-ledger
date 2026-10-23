@@ -27,7 +27,7 @@ Go to **https://dseligman1.github.io/seligman-ledger/**, paste the token in, hit
 Pick any PIN/passcode. This is what encrypts your data — **there is no recovery if you forget it**, since not even GitHub has it. Write it down somewhere safe (e.g. your password manager) rather than just memorizing it.
 
 ### 4. Import your data
-On first run you'll be asked to start empty or import a file. Use the `seed-data.json` file provided separately (not part of this repo) to load your real history and assumptions in one go.
+On first run you'll be asked to start empty or import a file. Use a ledger backup file (Settings → Download backup) if you ever need to restore.
 
 ### 5. Share access with your wife
 - Give her the **same GitHub token** (via a password manager, not plain text) and the **same PIN**.
@@ -35,11 +35,13 @@ On first run you'll be asked to start empty or import a file. Use the `seed-data
 
 ## Notes on the data model
 
-- **Accounts** track a running "balance vs last month" — like your old spreadsheet's snapshot panel, not a full transaction history.
-- **History** (used for the Explore chart) is built automatically: every time you save a balance, the app upserts that month's totals. It only has real data from the point you start using the app forward, plus whatever `Savings`/`Current Accounts` history came from your original spreadsheet's genuinely-entered actuals (2023–2026) — the "Other Assets"/"Total Net Worth" actuals in your old sheet turned out to be formulas mirroring the forecast, not independently verified figures, so those weren't carried over as history.
-- **House Equity** and **Motorway Shares** start at £0 — your old sheet didn't have a clean standalone "current actual" for either (only forecast projections), so please update these to real figures on first use.
-- **Forecast** lines are a simple trailing-6-month trend projection, not a rebuild of your old assumption-driven formulas — deliberately simple and transparent rather than precise.
+- Data lives in `ledger.json`, encrypted. The older `data.json` (v1) is kept untouched as a backup.
+- Every monthly check-in saves a snapshot of every account, so account and tag charts build up over time.
+- History before Aug 2026 is the savings/current totals from the old spreadsheet (Aug 2023 onwards).
+- House equity and Motorway shares are estimates until real values are entered.
 
-## Local development
+## Local preview
 
-No build step — it's plain HTML/CSS/JS. Open `index.html` via a local server (e.g. `npx serve`) to test changes, or just edit and push; GitHub Pages redeploys automatically.
+Run `python3 -m http.server 8765` from the folder *above* this repo, then open
+`http://localhost:8765/code/index.html?preview`. Preview data is read from a private file outside
+the repo, and edits stay in the browser.
