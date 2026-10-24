@@ -200,6 +200,7 @@ textarea.input { resize: vertical; min-height: 90px; line-height: 1.45; }
 .preview-bar { background: var(--accent-soft); border-bottom: 1px solid var(--line); color: var(--ink-2); font-size: 13px; }
 .preview-bar .inner { max-width: 1200px; margin: 0 auto; padding: 8px var(--gutter); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .preview-bar strong { color: var(--accent); }
+.preview-bar .bar-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
 
 main { max-width: 1200px; margin: 0 auto; padding: 16px var(--gutter) calc(var(--nav-h) + 32px + env(safe-area-inset-bottom)); }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 4px 0 14px; }

@@ -115,7 +115,7 @@
   L.specs.cover = () => {
     const s = S(), tl = ranged(), all = M.coverSeries(s), cs = all.slice(-tl.length), costs = M.coverCosts(s);
     return {
-      title: 'Months of cover over time', sub: `Liquid funds${s.coverage.excludeSlow && s.coverage.slowTagId && M.tag(s, s.coverage.slowTagId) ? ` less ${esc(M.tag(s, s.coverage.slowTagId).name)} (from Aug 2026, when accounts were first logged one by one)` : ''} ÷ ${gbp(costs)} a month (${s.settings.planYear} plan, same as the headline)`,
+      title: 'Months of cover over time', sub: `Liquid funds${s.coverage.excludeSlow && s.coverage.slowTagId && M.tag(s, s.coverage.slowTagId) ? ` less ${esc(M.tag(s, s.coverage.slowTagId).name)}${M.detailSnaps(s).length ? ` (from ${M.lbl(M.detailSnaps(s)[0].month, 'mon')} ${M.detailSnaps(s)[0].month.slice(0, 4)}, when accounts were first logged one by one)` : ''}` : ''} ÷ ${gbp(costs)} a month (${s.settings.planYear} plan, same as the headline)`,
       controls: () => seg('range', RANGES, UI.range),
       draw(el, big){ C.line(el, { labels: cs.map(p => p.m), fmtX: i => M.lbl(cs[i].m), height: big ? 360 : 250, yFmt: v => Math.round(v) + ' mo', zero: true,
         refs: [{ v: 6, label: '6 months' }, { v: 12, label: '12 months' }], series: [{ name: 'Months of cover', color: 'var(--accent)', values: cs.map(p => p.v), area: true }], aria: 'Months of cover over time',
@@ -179,7 +179,7 @@
     const on = items.filter(i => vis('networth', i.id));
     const val = (p, id) => id === 'liquid' ? p.liquid : (p.assetsBy[id] || 0);
     return {
-      title: 'Net worth', sub: 'Liquid funds plus other assets (house and shares are estimates from the sheet)', pills: items,
+      title: 'Net worth', sub: L.DEMO ? 'Liquid funds plus other assets (home and car are estimates)' : 'Liquid funds plus other assets (house and shares are estimates from the sheet)', pills: items,
       controls: () => seg('range', RANGES, UI.range),
       draw(el, big){ C.line(el, { labels: tl.map(p => p.m), fmtX: i => M.lbl(tl[i].m), stacked: on.length > 1, height: big ? 380 : 270, aria: 'Net worth over time',
         series: on.map(i => ({ name: i.name, color: i.color, values: tl.map(p => val(p, i.id)), area: on.length === 1 })),
@@ -291,7 +291,7 @@
       table: () => sm.mode === 'lines'
         ? `<table class="tbl"><thead><tr><th>Line</th>${tableMonths.map(m => `<th class="r">${M.lbl(m)}</th>`).join('')}</tr></thead><tbody>${ser.map(x => `<tr><td>${esc(x.name)}</td>${tableMonths.map(m => `<td class="r">${gbp(x.values[labels.indexOf(m)])}</td>`).join('')}</tr>`).join('')}<tr><td><b>% of income</b></td>${tableMonths.map(m => `<td class="r">${pctTxt(sm.pctInc[labels.indexOf(m)])}</td>`).join('')}</tr></tbody></table>`
         : `<table class="tbl"><thead><tr><th>Bucket</th>${tableMonths.map(m => `<th class="r">${M.lbl(m)}</th>`).join('')}</tr></thead><tbody>${sm.on.map(i => `<tr><td>${esc(i.name)}</td>${tableMonths.map(m => `<td class="r">${gbp(M.planMonth(sm.s, m).groups[i.id] || 0)}</td>`).join('')}</tr>`).join('')}<tr><td><b>% of income</b></td>${tableMonths.map(m => `<td class="r">${pctTxt(sm.pctInc[labels.indexOf(m)])}</td>`).join('')}</tr></tbody></table>`,
-      notes: () => 'Bars after "Now" are lighter because they\'re planned. Before today the figures are what the sheet planned at the time; from today they come from the Budget tab. Income includes bonuses in the month they\'re paid, so bonus months show a lower %. Tick one bucket to split it by line.',
+      notes: () => 'Bars after "Now" are lighter because they\'re planned. ' + (Object.keys(S().planHistory).length ? 'Before today the figures are what the sheet planned at the time; from today they come from the Budget tab.' : 'The figures come from the Budget tab, using each year\'s amounts.') + ' Income includes bonuses in the month they\'re paid, so bonus months show a lower %. Tick one bucket to split it by line.',
     };
   };
 
@@ -700,7 +700,7 @@
         ${L.chartCard('networth', { cls: 's6' })}
         ${L.chartCard('cover', { cls: 's6' })}
         ${L.chartCard('tags', { cls: 's6' })}
-        <section class="card s12"><h2>About this data</h2><div class="note" style="margin-top:8px">History before Aug 2026 is the savings/current totals from rows 92–93 of the sheet (Feb and Jul 2026 weren't recorded there, so they repeat the month before). From Aug 2026 every account is logged, so account and tag charts fill in from there. House equity and Motorway shares come from the sheet's rows 82–83, which were estimates. ${s.events.length ? '' : 'Log big one-offs (house works, bonuses) in Planner and you can strip them out of the monthly change.'}</div></section>
+        <section class="card s12"><h2>About this data</h2><div class="note" style="margin-top:8px">${L.DEMO ? `A made-up household for the demo. Every account is logged month by month from ${M.lbl(tl[0].m, 'long')}, so the account and tag charts cover the whole history. Home equity and the car are estimates.` : `History before Aug 2026 is the savings/current totals from rows 92–93 of the sheet (Feb and Jul 2026 weren't recorded there, so they repeat the month before). From Aug 2026 every account is logged, so account and tag charts fill in from there. House equity and Motorway shares come from the sheet's rows 82–83, which were estimates.`} ${s.events.length ? '' : 'Log big one-offs (house works, bonuses) in Planner and you can strip them out of the monthly change.'}</div></section>
       </div>`;
   } };
 

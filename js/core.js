@@ -10,15 +10,22 @@
     file: 'ledger.json', legacyFile: 'data.json',
     api: 'https://api.github.com',
     patKey: 'ledger_pat', uiKey: 'ledger_ui_v2', previewKey: 'ledger_preview_state_v2',
+    demoKey: 'ledger_demo', demoStateKey: 'ledger_demo_state_v1',
   };
-  L.PREVIEW = new URLSearchParams(location.search).has('preview');
 
   L.uid = (p='id') => p + Math.random().toString(36).slice(2, 9);
-  L.safeLS = {
-    get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
-    set(k, v){ try { localStorage.setItem(k, v); } catch(e){} },
-    del(k){ try { localStorage.removeItem(k); } catch(e){} },
-  };
+  const safe = store => ({
+    get(k){ try { return store().getItem(k); } catch(e){ return null; } },
+    set(k, v){ try { store().setItem(k, v); } catch(e){} },
+    del(k){ try { store().removeItem(k); } catch(e){} },
+  });
+  L.safeLS = safe(() => localStorage);
+  L.safeSS = safe(() => sessionStorage);
+
+  L.PREVIEW = new URLSearchParams(location.search).has('preview');
+  // Demo mode: logged in as "test demo" in this tab. Made-up data (js/demo.js), kept in this browser only.
+  L.DEMO = !L.PREVIEW && L.safeSS.get(CFG.demoKey) === '1';
+  L.LOCAL = L.PREVIEW || L.DEMO; // never reads or writes GitHub
 
   // ---------------- crypto ----------------
   const bufToB64 = buf => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
@@ -94,14 +101,14 @@
 
     queue(state){
       this.dirty = true;
-      if (L.PREVIEW){ L.safeLS.set(CFG.previewKey, JSON.stringify(state)); this.dirty = false; this.onStatus('preview', 'Preview · saved in this browser'); return; }
+      if (L.LOCAL){ L.safeLS.set(L.DEMO ? CFG.demoStateKey : CFG.previewKey, JSON.stringify(state)); this.dirty = false; this.onStatus('preview', (L.DEMO ? 'Demo' : 'Preview') + ' · saved in this browser'); return; }
       clearTimeout(this.saveTimer);
       this.onStatus('saving', 'Saving…');
       this.saveTimer = setTimeout(() => this.flush(state), 1100);
     },
 
     async flush(state){
-      if (L.PREVIEW || !this.pin) return;
+      if (L.LOCAL || !this.pin) return;
       if (this.saving){ this.saveTimer = setTimeout(() => this.flush(state), 600); return; }
       this.saving = true;
       try {
@@ -123,7 +130,7 @@
 
     // Pull the other person's edits when the app comes back into focus.
     async pullIfChanged(){
-      if (L.PREVIEW || !this.pin || this.dirty || this.saving) return;
+      if (L.LOCAL || !this.pin || this.dirty || this.saving) return;
       try {
         const remote = await ghGet(CFG.file);
         if (remote && remote.sha !== this.sha){
@@ -207,4 +214,20 @@
     return null;
   };
   L.resetPreview = function(){ L.safeLS.del(CFG.previewKey); location.reload(); };
+
+  // Demo mode: edits persist in this browser until reset. A demo nobody has edited is rebuilt each
+  // month so its history always runs up to today.
+  L.loadDemo = function(){
+    const saved = L.safeLS.get(CFG.demoStateKey);
+    if (saved){ try {
+      const st = JSON.parse(saved), m = st.meta || {};
+      if (m.demoVersion === L.DEMO_VERSION && (m.updatedAt || m.demoBuiltFor === L.model.thisMonth())) return L.normalise(st);
+    } catch(e){} }
+    const st = L.normalise(L.demoState());
+    L.safeLS.set(CFG.demoStateKey, JSON.stringify(st));
+    return st;
+  };
+  L.resetDemo = function(){ L.safeLS.del(CFG.demoStateKey); location.reload(); };
+  L.startDemo = function(){ L.safeSS.set(CFG.demoKey, '1'); location.reload(); };
+  L.exitDemo = function(){ L.safeSS.del(CFG.demoKey); location.reload(); };
 })();

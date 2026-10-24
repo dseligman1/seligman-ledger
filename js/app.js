@@ -90,7 +90,7 @@
       <button class="si" data-act="manageTags">${L.icons.tag}<span>Manage tags</span></button>
       <button class="si" data-act="reminder">${L.icons.bell}<span>Monthly reminder</span></button>`;
     $('side-foot').innerHTML = `<div class="seg" role="group" aria-label="Theme">${[['dark','Dark'],['light','Light'],['system','Auto']].map(([v, n]) => `<button class="${UI.theme === v ? 'on' : ''}" data-act="theme" data-v="${v}">${n}</button>`).join('')}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="settings">${L.icons.settings.replace('<svg', '<svg width="15" height="15"')}Settings</button>${L.PREVIEW ? '' : `<button class="btn sm" data-act="lock">${L.icons.lock.replace('<svg', '<svg width="15" height="15"')}Lock</button>`}</div>`;
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="settings">${L.icons.settings.replace('<svg', '<svg width="15" height="15"')}Settings</button>${L.PREVIEW ? '' : `<button class="btn sm" data-act="lock">${L.icons.lock.replace('<svg', '<svg width="15" height="15"')}${L.DEMO ? 'Exit demo' : 'Lock'}</button>`}</div>`;
     $('theme-btn').innerHTML = isDark() ? L.icons.sun : L.icons.moon;
     // home-screen icon badge (installed app, where supported)
     try { if ('setAppBadge' in navigator){ if (due && out) navigator.setAppBadge(out); else navigator.clearAppBadge(); } } catch(e){}
@@ -174,8 +174,10 @@
     },
     settings(){ openSettings(); },
     theme(el){ UI.theme = el.dataset.v; L.saveUI(); applyTheme(); L.render(); if (L.modal.isOpen) L.modal.refresh(); },
-    lock(){ L.store.lock(); },
+    lock(){ if (L.DEMO) L.exitDemo(); else L.store.lock(); },
     resetPreview(){ if (confirm('Reset the preview back to the spreadsheet data? Your preview edits will be lost.')) L.resetPreview(); },
+    resetDemo(){ if (confirm('Reset the demo back to its original made-up data? Every change made in the demo on this browser will be lost.')) L.resetDemo(); },
+    exitDemo(){ L.exitDemo(); },
     backup(){
       const blob = new Blob([JSON.stringify(L.S, null, 1)], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ledger-backup-' + M.today() + '.json'; a.click();
@@ -247,6 +249,7 @@
     if (L.modal.isOpen) L.modal.refresh();
   };
   const pushHtml = () => {
+    if (L.DEMO) return '<div class="small muted">Switched off in the demo. In the real app: a notification at 9am on the 1st of each month, then every day until that month\'s check-in is ticked off.</div>';
     const s = L.S, subs = s.push.subs, mine = push.endpoint && subs.some(x => x.endpoint === push.endpoint);
     const intro = '<div class="small muted" style="margin-bottom:10px">A notification at 9am on the 1st of each month, then every day at 9am until that month\'s check-in is ticked off.</div>';
     let ctl;
@@ -316,15 +319,17 @@
             <div class="small muted" style="margin-bottom:8px">Drives months of cover, the plan line on Trends and the projection.</div>
             <select class="input" data-edit="field" data-coll="settings" data-f="planYear" data-type="num" data-refresh="1">${years}</select></div>
           <div class="section"><h3>Your data</h3>
-            <div class="small muted" style="margin-bottom:10px">${L.PREVIEW ? 'Preview mode: changes stay in this browser only and never reach GitHub.' : 'Encrypted with your PIN and saved to <code>ledger.json</code> in the GitHub repo. Every save is a commit, so nothing is ever lost.'}
+            <div class="small muted" style="margin-bottom:10px">${L.DEMO ? 'Demo: made-up data. Changes stay in this browser until you reset it, and never reach GitHub.' : L.PREVIEW ? 'Preview mode: changes stay in this browser only and never reach GitHub.' : 'Encrypted with your PIN and saved to <code>ledger.json</code> in the GitHub repo. Every save is a commit, so nothing is ever lost.'}
               ${s.meta.updatedAt ? '<br>Last change: ' + new Date(s.meta.updatedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : ''}${s.meta.importedFrom ? '<br>Imported from: ' + esc(s.meta.importedFrom) : ''}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn" data-act="backup">Download backup</button>
               <button class="btn" data-act="importFile">Import a file…</button>
               ${L.PREVIEW ? '<button class="btn danger" data-act="resetPreview">Reset preview</button>' : ''}
+              ${L.DEMO ? '<button class="btn danger" data-act="resetDemo">Reset demo data</button>' : ''}
             </div>
             <div class="note">The backup file is <b>not</b> encrypted — keep it somewhere private.</div></div>
-          ${L.PREVIEW ? '' : `<div class="section"><h3>This device</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="lock">Lock now</button><button class="btn" data-act="changeToken">Change GitHub token</button></div></div>`}
+          ${L.DEMO ? '<div class="section"><h3>Demo</h3><button class="btn" data-act="exitDemo">Exit demo</button></div>' : ''}
+          ${L.LOCAL ? '' : `<div class="section"><h3>This device</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="lock">Lock now</button><button class="btn" data-act="changeToken">Change GitHub token</button></div></div>`}
           <div class="section note">The Seligman Ledger · v2 · data schema ${s.meta.schemaVersion}</div>`,
       };
     });
@@ -334,13 +339,13 @@
     try {
       const obj = JSON.parse(await f.text());
       const next = obj.meta && obj.meta.schemaVersion === 2 ? obj : L.migrateV1(obj);
-      if (!confirm('Replace everything in the ledger with "' + f.name + '"? (The current version stays in GitHub history.)')) return;
+      if (!confirm('Replace everything in the ledger with "' + f.name + '"?' + (L.LOCAL ? '' : ' (The current version stays in GitHub history.)'))) return;
       L.S = L.normalise(next); M.invalidate(); L.store.queue(L.S); L.modal.close(); L.render(); L.toast('Imported ' + f.name);
     } catch(e){ alert('That file could not be read as ledger data.'); }
   });
 
   // ---------------- gates + boot ----------------
-  const show = id => ['gate-connect','gate-pin','gate-msg','app'].forEach(g => $(g).classList.toggle('hidden', g !== id));
+  const show = id => ['gate-connect','gate-pin','gate-demo','gate-msg','app'].forEach(g => $(g).classList.toggle('hidden', g !== id));
   function syncStatus(kind, msg){ const d = $('sync-dot'); if (!d) return; d.className = 'sync-dot ' + kind; $('sync-label').textContent = msg; }
   L.store.onStatus = syncStatus;
   L.store.onRemote = s => { L.S = s; M.invalidate(); if (!editing() && !L.modal.isOpen) L.render(); else pending = true; };
@@ -350,14 +355,18 @@
     $('menu-btn').innerHTML = L.icons.menu; $('side-close').innerHTML = L.icons.close;
     document.querySelector('.side').addEventListener('click', ev => { if (ev.target.closest('[data-act="logBalances"],[data-act="manageTags"],[data-act="quickOneOff"],[data-act="settings"]')) closeMenu(); });
     if (L.PREVIEW) $('preview-bar').classList.remove('hidden');
+    if (L.DEMO){
+      $('preview-bar').innerHTML = `<div class="inner"><strong>Demo</strong><span>Made-up data, saved only in this browser.</span><span class="bar-actions"><button class="btn sm" data-act="resetDemo">Reset demo data</button><button class="btn sm" data-act="exitDemo">Exit demo</button></span></div>`;
+      $('preview-bar').classList.remove('hidden');
+    }
   }
   function enterApp(state){
     L.S = state; M.invalidate();
     if (location.hash === '#checkin'){ UI.tab = 'overview'; history.replaceState(null, '', location.pathname + location.search); }
     show('app'); buildShell(); push.init();
-    if (L.PREVIEW) syncStatus('preview', 'Preview · local only'); else syncStatus('saved', 'Synced');
+    if (L.LOCAL) syncStatus('preview', (L.DEMO ? 'Demo' : 'Preview') + ' · local only'); else syncStatus('saved', 'Synced');
     L.render();
-    if (!L.PREVIEW){
+    if (!L.LOCAL){
       window.addEventListener('focus', () => L.store.pullIfChanged());
       document.addEventListener('visibilitychange', () => { if (!document.hidden) L.store.pullIfChanged(); });
     }
@@ -389,6 +398,21 @@
       if (!s){ $('gate-msg-text').innerHTML = 'Preview data wasn\'t found. Open this page from the project folder via the local preview server (see the project README).'; show('gate-msg'); return; }
       enterApp(s); return;
     }
+    if (L.DEMO){ enterApp(L.loadDemo()); return; }
+    // Demo login: a made-up ledger for showing the app to others. Not a security gate; the real
+    // data still needs this device's GitHub token and the PIN.
+    let back = 'gate-connect';
+    document.querySelectorAll('[data-demo-open]').forEach(a => a.addEventListener('click', e => {
+      e.preventDefault(); back = a.closest('.gate').id; $('demo-error').textContent = ''; show('gate-demo'); $('demo-user').focus();
+    }));
+    $('demo-back').addEventListener('click', e => { e.preventDefault(); show(back); });
+    const demoLogin = () => {
+      const name = $('demo-user').value.trim().toLowerCase().replace(/\s+/g, ' ');
+      if (name === 'test demo' && $('demo-pin').value.trim() === '123456') L.startDemo();
+      else $('demo-error').textContent = 'That name and PIN don\'t match the demo login.';
+    };
+    $('demo-btn').addEventListener('click', demoLogin);
+    ['demo-user', 'demo-pin'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') demoLogin(); }));
     $('pat-btn').addEventListener('click', () => {
       const v = $('pat-input').value.trim(); if (!v){ $('pat-error').textContent = 'Paste the token first.'; return; }
       L.store.setPat(v); show('gate-pin'); $('pin-input').focus();

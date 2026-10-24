@@ -66,6 +66,25 @@ http://localhost:8765/code/index.html?preview. It loads `../data/ledger-preview.
 unencrypted seed in the private `data/` folder, never committed). Edits stay in that browser's
 localStorage; Settings → Reset preview restores the seed.
 
+## Demo mode (v2.4, for showing the app to others)
+
+- **Log in**: token or PIN screen → "Log in to the demo" → name `test demo`, PIN `123456` (case and
+  spacing in the name don't matter). The check is in `app.js` (`demoLogin`); it's a convenience, not
+  security, because the repo is public. Real data still needs the token + real PIN.
+- **Mode**: login sets `sessionStorage.ledger_demo = 1` and reloads. `L.DEMO` (core.js) is read once at
+  load; `L.LOCAL = PREVIEW || DEMO` switches off every GitHub read/write, focus pulls and push
+  notifications. Closing the tab ends the demo; Exit demo / Lock clear the flag.
+- **Data**: `js/demo.js` → `L.demoState()` builds an invented household for today's date: 10 accounts
+  + 2 estimated assets, 36 months of per-account history, this month's check-in 4/10 done, budget
+  2 years back to 1 year ahead with pay months, one-offs, upcoming costs, three what-ifs and a loft
+  project. Fixed random seed, so every reset gives the same household. Run it through `M` in Node to
+  sanity-check numbers (liquid ~£53k → ~£80k, ~15 months of cover).
+- **Storage**: edits save to `localStorage.ledger_demo_state_v1`. Reset demo data (demo bar or Settings)
+  deletes it. A demo nobody has edited is rebuilt each month so history always runs to today; bump
+  `L.DEMO_VERSION` after changing `demo.js` so saved demos are rebuilt.
+- **Text**: sheet-specific notes (Trends "About this data", net worth subtitle, spend-chart notes) have
+  a demo or no-planHistory version, so the demo never mentions the real sheet or accounts.
+
 ## How the sheet maps in (importer: see `data/` notes)
 
 - **Rows 92–93 (Savings / Current actuals)** → `snapshots[].totals`, Aug 2023 → Jul 2026.
@@ -191,6 +210,10 @@ v2.3 (Dan's feedback): (i) bonus/income/cost pay months set per year (Budget →
 paid?), and applied to past months too; (ii) Planner edits redraw at once (the stale-redraw bug above);
 (iii) "Count as slower money" renamed "Money that's slower to get out", explained, and given a "Leave out
 of months of cover" tick box. File versions bumped to `?v=2.3.0` so phones fetch the new code.
+
+v2.4 (2026-10-24): demo mode for showing the app to others (see "Demo mode" above). Tested in headless
+Chrome at 390px and 1280px: login (wrong and right PIN), all five pages, check-in edit kept after
+reload, reset, exit; no GitHub requests and no JS errors in demo mode. File versions bumped to `?v=2.4.0`.
 
 ### Next steps / ideas
 - Check on the iPhone that moving between boxes keeps the keyboard up after the redraw (desktop tested only).

@@ -14,7 +14,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0E0F0B">
 <meta name="robots" content="noindex">
-<link rel="stylesheet" href="style.css?v=2.3.0">
+<link rel="stylesheet" href="style.css?v=2.4.0">
 <script>
   // Local preview only: loads the unencrypted seed from the private data folder (never part of the repo).
   if (new URLSearchParams(location.search).has('preview')) document.write('<script src="../data/ledger-preview.js"><\/script>');
@@ -31,6 +31,7 @@
     <button class="btn primary block" id="pat-btn">Connect</button>
     <div class="gate-error" id="pat-error"></div>
     <div class="gate-hint">Stored only in this browser. It's only ever sent to GitHub.</div>
+    <div class="gate-hint"><a href="#" data-demo-open>Log in to the demo</a></div>
   </div>
 </div>
 
@@ -46,6 +47,20 @@
       <div class="gate-sub" style="margin-top:14px">This PIN will lock a brand-new, empty ledger. It can't be recovered, so store it in your password manager.</div>
       <button class="btn block" id="start-empty">Start an empty ledger</button>
     </div>
+    <div class="gate-hint"><a href="#" data-demo-open>Log in to the demo</a></div>
+  </div>
+</div>
+
+<!-- demo login -->
+<div class="gate hidden" id="gate-demo">
+  <div class="gate-card">
+    <div class="brand">The <em>Seligman</em> Ledger</div>
+    <div class="gate-sub">Demo login. Opens the full app with a made-up household, so you can try everything. Nothing is saved to GitHub.</div>
+    <div class="field"><label for="demo-user">Name</label><input class="input" id="demo-user" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+    <div class="field"><label for="demo-pin">PIN</label><input class="input" type="password" inputmode="numeric" id="demo-pin" placeholder="••••••" autocomplete="off"></div>
+    <button class="btn primary block" id="demo-btn">Open the demo</button>
+    <div class="gate-error" id="demo-error"></div>
+    <div class="gate-hint"><a href="#" id="demo-back">Back</a></div>
   </div>
 </div>
 
@@ -88,11 +103,12 @@
 <div class="toast" id="toast" role="status"></div>
 <input type="file" id="import-input" accept="application/json,.json" class="hidden">
 
-<script src="js/core.js?v=2.3.0"></script>
-<script src="js/model.js?v=2.3.0"></script>
-<script src="js/charts.js?v=2.3.0"></script>
-<script src="js/app.js?v=2.3.0"></script>
-<script src="js/views.js?v=2.3.0"></script>
+<script src="js/core.js?v=2.4.0"></script>
+<script src="js/model.js?v=2.4.0"></script>
+<script src="js/demo.js?v=2.4.0"></script>
+<script src="js/charts.js?v=2.4.0"></script>
+<script src="js/app.js?v=2.4.0"></script>
+<script src="js/views.js?v=2.4.0"></script>
 <script>Ledger.boot();</script>
 </body>
 </html>

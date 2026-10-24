@@ -46,6 +46,14 @@ month, then every day at 9am until that month's check-in is complete. This needs
 - History before Aug 2026 is the savings/current totals from the old spreadsheet (Aug 2023 onwards).
 - House equity and Motorway shares are estimates until real values are entered.
 
+## Demo (for showing the app to others)
+
+On the token or PIN screen tap **Log in to the demo**, then use name `test demo` and PIN `123456`.
+It opens the full app with a made-up household (`js/demo.js`). Nothing is read from or written to
+GitHub; demo edits stay in that browser until **Reset demo data** (demo bar or Settings). **Exit demo**
+returns to the normal login. The demo login is a convenience, not security: the real data still
+needs the GitHub token and the real PIN.
+
 ## Local preview
 
 Run `python3 -m http.server 8765` from the folder *above* this repo, then open
