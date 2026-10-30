@@ -188,20 +188,24 @@ not data). A version saved under an older PIN shows "saved with a different PIN"
 Code: `L.versions` in `js/core.js`, `openVersions` and `ver*` actions in `js/app.js`, `.ver-*` in `style.css`.
 Tested with stubbed history in headless Chrome (list, paging, PIN error, compare, restore); not yet on a phone.
 
-## Backups (monthly, automatic)
+## Backups (automatic)
 
-Every save is already a commit, so `git log ledger.json` holds every version. On top of that, two
-monthly copies on the 7th guard against deleted files, a rewritten history or a lost repo:
+Every save is already a commit, so `git log ledger.json` holds every version (and Settings → Versions…
+restores any of them). On top of that, two copies guard against deleted files, a rewritten history or a lost repo:
 
-1. **GitHub** (`.github/workflows/backup.yml`, 06:00 UTC on the 7th): a Release `backup-YYYY-MM-DD`
+1. **GitHub, monthly** (`.github/workflows/backup.yml`, 06:00 UTC on the 7th): a Release `backup-YYYY-MM-DD`
    with `seligman-ledger-<date>.bundle` (the whole repo, every commit), `ledger-<date>.json` and
    `data-v1-<date>.json` (both encrypted). See github.com/dseligman1/seligman-ledger/releases.
-2. **Dan's Mac** (launchd `~/Library/LaunchAgents/com.seligman.ledger-backup.plist` →
-   `~/Library/Scripts/seligman-ledger-backup.sh`): daily 10am + at login, acts once a month on/after
-   the 7th, so it catches up if the Mac was off. Saves to `~/Backups/seligman-ledger/<date>/` a
-   bundle cloned fresh from GitHub plus `ledger.json`. Kept outside ~/Documents because macOS blocks
-   scheduled jobs there; run `zsh ~/Library/Scripts/seligman-ledger-backup.sh --now` by hand to also
-   zip the project folder (which includes the unencrypted preview seed). Log: `backup.log`.
+2. **Dan's Mac, daily since 2026-10-30** (launchd `~/Library/LaunchAgents/com.seligman.ledger-backup.plist` →
+   `~/Library/Scripts/seligman-ledger-backup.sh`): runs at 10am and at login. Checks GitHub's latest
+   commit (`git ls-remote`) and makes a copy only if it's new since the last one (`.last-sha`), into
+   `~/Backups/seligman-ledger/<date>/`: a bundle cloned fresh from GitHub plus `ledger.json`.
+   Keeps every copy from the last 30 days, then the newest copy of each month; copies holding a
+   project-folder zip are never pruned. Silent on success; notifies only if GitHub hasn't been reached
+   for 7 days (`.last-check`). Kept outside ~/Documents because macOS blocks scheduled jobs there; run
+   `zsh ~/Library/Scripts/seligman-ledger-backup.sh --now` by hand to force a copy that also zips the
+   project folder (which includes the unencrypted preview seed). Log: `backup.log`. The old monthly
+   script is kept beside it as `seligman-ledger-backup.sh.monthly-2026-10-30`.
 
 **Restore**
 - Any earlier save, from the app: Settings → Versions… (see above). Needs the repo and the PIN.
