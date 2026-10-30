@@ -51,6 +51,7 @@
     fn(L.S);
     L.S.meta.updatedAt = new Date().toISOString();
     M.invalidate();
+    if (L.reports) L.reports.sync(L.S, true);
     L.store.queue(L.S);
     if (opts.render !== false) L.requestRender();
     if (opts.modal) L.modal.refresh();
@@ -74,6 +75,7 @@
     root.innerHTML = page.render();
     renderNav();
     L.mountCharts(root);
+    if (L.reports) L.reports.afterRender();
     if (keep){
       const el = [...root.querySelectorAll(keep.tag)].find(x => fieldKey(x) === keep.key);
       if (el){ el.focus({ preventScroll: true }); if (keep.sel && keep.sel[0] != null) try { el.setSelectionRange(keep.sel[0], keep.sel[1]); } catch(e){} }
@@ -89,6 +91,7 @@
       <button class="si" data-act="quickOneOff">${L.icons.bolt}<span>Log a one-off</span></button>
       <button class="si" data-act="manageTags">${L.icons.tag}<span>Manage tags</span></button>
       <button class="si" data-act="reminder">${L.icons.bell}<span>Monthly reminder</span></button>`;
+    if (L.reports) $('side-actions').insertAdjacentHTML('beforeend', `<button class="si" data-act="monthlyReport">${L.icons.trends}<span>Monthly reviews</span></button>`);
     $('side-foot').innerHTML = `<div class="seg" role="group" aria-label="Theme">${[['dark','Dark'],['light','Light'],['system','Auto']].map(([v, n]) => `<button class="${UI.theme === v ? 'on' : ''}" data-act="theme" data-v="${v}">${n}</button>`).join('')}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="settings">${L.icons.settings.replace('<svg', '<svg width="15" height="15"')}Settings</button>${L.PREVIEW ? '' : `<button class="btn sm" data-act="lock">${L.icons.lock.replace('<svg', '<svg width="15" height="15"')}${L.DEMO ? 'Exit demo' : 'Lock'}</button>`}</div>`;
     $('theme-btn').innerHTML = isDark() ? L.icons.sun : L.icons.moon;
@@ -137,7 +140,7 @@
       L.mountCharts(body); body.scrollTop = top;
       mounted = m; if (m.onMount) m.onMount(body);
     },
-    close(){ builder = null; mounted = null; $('modal').classList.remove('on'); document.body.style.overflow = ''; setTimeout(() => { if (!builder){ $('modal-body').innerHTML = ''; } }, 200); if (pending){ pending = false; L.render(); } },
+    close(){ builder = null; mounted = null; $('modal').classList.remove('on'); document.body.style.overflow = ''; setTimeout(() => { if (!builder){ $('modal-body').innerHTML = ''; } }, 200); if (pending){ pending = false; L.render(); } if (L.reports) L.reports.afterRender(); },
     get isOpen(){ return !!builder; },
   };
 
@@ -412,6 +415,7 @@
       next.push = L.S.push; // notification sign-ups belong to devices, not to a point in time
       next.meta.updatedAt = new Date().toISOString(); next.meta.restoredFrom = { sha: v.sha, date: v.date };
       L.S = L.normalise(next); M.invalidate();
+      if (L.reports) L.reports.sync(L.S);
       L.store.queue(L.S, 'Restore ledger to version from ' + v.date);
       L.modal.close(); L.render(); L.toast('Restored the version from ' + when(v.date));
     },
@@ -423,7 +427,7 @@
       const obj = JSON.parse(await f.text());
       const next = obj.meta && obj.meta.schemaVersion === 2 ? obj : L.migrateV1(obj);
       if (!confirm('Replace everything in the ledger with "' + f.name + '"?' + (L.LOCAL ? '' : ' (The current version stays in GitHub history.)'))) return;
-      L.S = L.normalise(next); M.invalidate(); L.store.queue(L.S); L.modal.close(); L.render(); L.toast('Imported ' + f.name);
+      L.S = L.normalise(next); M.invalidate(); if (L.reports) L.reports.sync(L.S); L.store.queue(L.S); L.modal.close(); L.render(); L.toast('Imported ' + f.name);
     } catch(e){ alert('That file could not be read as ledger data.'); }
   });
 
@@ -431,12 +435,12 @@
   const show = id => ['gate-connect','gate-pin','gate-demo','gate-msg','app'].forEach(g => $(g).classList.toggle('hidden', g !== id));
   function syncStatus(kind, msg){ const d = $('sync-dot'); if (!d) return; d.className = 'sync-dot ' + kind; $('sync-label').textContent = msg; }
   L.store.onStatus = syncStatus;
-  L.store.onRemote = s => { L.S = s; M.invalidate(); if (!editing() && !L.modal.isOpen) L.render(); else pending = true; };
+  L.store.onRemote = s => { L.S = s; M.invalidate(); if (L.reports && L.reports.sync(s)) L.store.queue(s); if (!editing() && !L.modal.isOpen) L.render(); else pending = true; };
 
   function buildShell(){
     $('settings-btn').innerHTML = L.icons.settings; $('modal-close').innerHTML = L.icons.close;
     $('menu-btn').innerHTML = L.icons.menu; $('side-close').innerHTML = L.icons.close;
-    document.querySelector('.side').addEventListener('click', ev => { if (ev.target.closest('[data-act="logBalances"],[data-act="manageTags"],[data-act="quickOneOff"],[data-act="settings"]')) closeMenu(); });
+    document.querySelector('.side').addEventListener('click', ev => { if (ev.target.closest('[data-act="logBalances"],[data-act="manageTags"],[data-act="quickOneOff"],[data-act="settings"],[data-act="monthlyReport"]')) closeMenu(); });
     if (L.PREVIEW) $('preview-bar').classList.remove('hidden');
     if (L.DEMO){
       $('preview-bar').innerHTML = `<div class="inner"><strong>Demo</strong><span>Made-up data, saved only in this browser.</span><span class="bar-actions"><button class="btn sm" data-act="resetDemo">Reset demo data</button><button class="btn sm" data-act="exitDemo">Exit demo</button></span></div>`;
@@ -448,6 +452,7 @@
     if (location.hash === '#checkin'){ UI.tab = 'overview'; history.replaceState(null, '', location.pathname + location.search); }
     show('app'); buildShell(); push.init();
     if (L.LOCAL) syncStatus('preview', (L.DEMO ? 'Demo' : 'Preview') + ' · local only'); else syncStatus('saved', 'Synced');
+    if (L.reports && L.reports.sync(L.S)) L.store.queue(L.S);
     L.render();
     if (!L.LOCAL){
       window.addEventListener('focus', () => L.store.pullIfChanged());

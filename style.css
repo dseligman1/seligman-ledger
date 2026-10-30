@@ -522,3 +522,17 @@ button.chip.on { border-color: var(--accent); color: var(--ink); background: var
 .drill-lines .hbars { align-self: stretch; }
 .drill > .btn { margin-top: 10px; }
 @media (min-width: 640px) { .drill-g > summary { grid-template-columns: minmax(0,1fr) auto 110px; } }
+/* Shareable monthly review */
+.report-ready{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.report-ready .lbl{margin-bottom:8px}
+.report-ready .sub{margin-top:7px;max-width:640px}
+.report-ready .btn{flex-shrink:0}
+.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.report-toolbar .field{margin:0;max-width:260px}
+.report-preview img{display:block;width:100%;height:auto;border-radius:12px}
+.report-actions{display:flex;gap:8px;flex-wrap:wrap}
+.report-actions .btn{flex:1;white-space:nowrap}
+.report-actions [hidden]{display:none}
+.report-details{margin-top:16px;font-size:14px;line-height:1.6}
+.report-details summary{cursor:pointer}
+@media(max-width:560px){.report-ready,.report-toolbar{align-items:stretch;flex-direction:column}.report-toolbar .field{max-width:none}.report-actions .btn{flex-basis:40%}}

@@ -373,6 +373,7 @@
         <div class="verdict"><div class="vi ${v.c}" aria-hidden="true">${v.i}</div><div class="vt"><strong>${v.t}</strong>${v.d}</div></div>
       </section>
       ${checkinCard(s)}
+      ${L.reports ? L.reports.card() : ''}
       <div class="stats" style="grid-column:1/-1">
         <button class="stat" data-act="openBucket" data-b="savings"><div class="k">Savings</div><div class="v">${gbp(l.savings)}</div><div class="d">${prev ? chg(l.savings - prev.savings, ' vs last month') : ''}</div></button>
         <button class="stat" data-act="openBucket" data-b="current"><div class="k">Current accounts</div><div class="v">${gbp(l.current)}</div><div class="d">${prev ? chg(l.current - prev.current, ' vs last month') : ''}</div></button>

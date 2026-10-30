@@ -33,6 +33,17 @@ around **monthly snapshots**:
 
 ## Architecture
 
+### Monthly reviews (v2.7, 2026-10-30)
+
+- Complete every non-asset account confirmation plus the change, one-offs and budget checklist activities: the previous month's review is created automatically and opens after the last activity. A manual balance tick cannot bypass unconfirmed accounts. November check-in → October review, using October → November balance snapshots and October's plan. Dates and the approximation are explicit on the export.
+- Overview → View & share review, or menu → Monthly reviews, reopens saved reviews; a month selector accesses older ones. Existing completed check-ins are picked up on unlock. Reopening a check-in withdraws its report until complete again; completed reports refresh when relevant figures change.
+- `js/report-model.js` computes the dataset: three deterministic bullets, liquid funds/change/cover/net worth, six check-in balances, six prior-month changes versus their plans, and the next month's planned change/upcoming item. No invented spending causes or AI service calls. Missing snapshots create gaps, not zero changes. Historical calculations exclude later balances/assets; stored historical account IDs prevent new accounts reopening past reviews.
+- `js/reports.js` draws a 2160×3480 PNG and a matching single-page image-based PDF on device. Native share, PNG clipboard copy and image/PDF downloads use already prepared files (preserving tap activation). Unsupported/failed sharing offers downloads; cancelling sharing is quiet. Native WhatsApp delivery still needs an iPhone test.
+- Small `monthlyReports[checkMonth]` datasets save inside the existing encrypted ledger; rendered files stay in browser memory until the user saves/shares. No plaintext images, PDF files or financial data are published to the public repo. At most two rendered reports are cached in memory. Existing backups, Versions and sync continue to work.
+- App hooks: commit, unlock, remote sync, import and version restore. Assets bumped together to `?v=2.7.0`.
+- Verification: `node --test tests/monthly-report.test.cjs` (8 calculation/lifecycle tests). `node tests/report-browser.cjs` (requires Playwright, Chrome, local server at :8767; optional `LEDGER_PLAYWRIGHT_PATH`) uses only demo data and mocks sharing/clipboard. Covers both completion orders, PNG/PDF downloads, 390px/1280px layout, reload/history, reopen/recomplete and failures; no external requests. PNG and PDF rendered and visually checked; PDF confirmed one page with Poppler. Demo outputs are in the private sibling `outputs/monthly-review/`.
+- API references: [Web Share](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/share), [clipboard image writing](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/write). No runtime library added.
+
 Plain HTML/CSS/JS with no build step. Classic `<script>` tags (not modules), so the preview
 also works from `file://`.
 
