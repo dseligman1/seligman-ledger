@@ -205,29 +205,28 @@
 
   // ---------- stacked bars (non-negative parts) ----------
   // o: { labels, series:[{name,color,values}], height, fmtX, tipFmt, markIdx, markLabel, faded(i),
-  //      pct:{name, values, ref, refLabel} (line on its own right-hand % axis), sel, onPick(i) }
+  //      line:{name, values, color} (£ line on the same axis as the bars, e.g. income), sel, onPick(i) }
   C.stackBars = function(el, o){
     const W = Math.max(260, Math.floor(el.clientWidth)), H = o.height || 240;
     const n = o.labels.length; if (!n || !o.series.length){ el.innerHTML = '<div class="empty">Nothing selected</div>'; return; }
     const tot = o.labels.map((_, i) => o.series.reduce((t, s) => t + Math.max(0, s.values[i] || 0), 0));
-    const tk = ticks(0, Math.max(1, ...tot), H < 240 ? 4 : 5), hi = tk[tk.length - 1];
-    // right axis shares the left gridlines: pick a % step so the same number of ticks covers the line and its reference
-    const pv = o.pct ? o.pct.values : null;
-    let pStep = 0, pHi = 0;
-    let pCap = null;
-    if (pv){
-      // one-off months (e.g. a house purchase booked against income) would flatten the line, so clip outliers and label them
-      const pp = pv.filter(v => v != null).sort((a, b) => a - b), q = pp[Math.floor(pp.length * 0.9)] || 0;
-      const lim = Math.max(o.pct.ref || 0, q) * 1.3;
-      if (pp.length > 6 && pp[pp.length - 1] > lim) pCap = lim;
-      const need = Math.max(o.pct.ref || 0, ...pp.map(v => pCap ? Math.min(v, pCap) : v)) * 1.04; pStep = niceStep(need, tk.length - 1); while (pStep * (tk.length - 1) < need) pStep = niceStep(pStep * 1.05 * (tk.length - 1), tk.length - 1); pHi = pStep * (tk.length - 1); }
-    const ml = Math.max(...tk.map(v => C.axisMoney(v).length)) * 6.6 + 10, mr = pv ? 40 : 8, mt = 14, mb = 24;
+    const lv = o.line ? o.line.values : null, lc = (o.line && o.line.color) || 'var(--neg)';
+    // one-off spikes in the line (e.g. a bonus month) would squash the bars, so clip outliers and label them
+    let lCap = null;
+    if (lv){
+      const pp = lv.filter(v => v != null).sort((a, b) => a - b), q = pp[Math.floor(pp.length * 0.9)] || 0;
+      const lim = Math.max(q, ...tot) * 1.3;
+      if (pp.length > 6 && pp[pp.length - 1] > lim) lCap = lim;
+    }
+    const lMax = lv ? Math.max(0, ...lv.filter(v => v != null).map(v => lCap ? Math.min(v, lCap) : v)) : 0;
+    const tk = ticks(0, Math.max(1, ...tot, lMax), H < 240 ? 4 : 5), hi = tk[tk.length - 1];
+    const ml = Math.max(...tk.map(v => C.axisMoney(v).length)) * 6.6 + 10, mr = 8, mt = 14, mb = 24;
     const pw = W - ml - mr, ph = H - mt - mb, band = pw / n;
     const bw = Math.max(1.5, Math.min(30, band - Math.min(3, Math.max(1, band * 0.25))));
-    const cx = i => ml + band * i + band / 2, y = v => mt + (hi - v) / hi * ph, yp = v => mt + (pHi - Math.min(pHi, v)) / pHi * ph;
+    const cx = i => ml + band * i + band / 2, y = v => mt + (hi - Math.min(hi, v)) / hi * ph;
     const fx = o.fmtX || (i => o.labels[i]);
     let g = svgOpen(W, H, `aria-label="${esc(o.aria || 'Stacked bars')}"`);
-    tk.forEach((v, k) => { g += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" style="stroke:${v === 0 ? 'var(--axis)' : 'var(--grid)'}"/><text x="${ml - 8}" y="${y(v) + 4}" text-anchor="end">${esc(C.axisMoney(v))}</text>`; if (pv) g += `<text x="${W - mr + 6}" y="${y(v) + 4}" text-anchor="start">${Math.round(pStep * k)}%</text>`; });
+    tk.forEach(v => { g += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" style="stroke:${v === 0 ? 'var(--axis)' : 'var(--grid)'}"/><text x="${ml - 8}" y="${y(v) + 4}" text-anchor="end">${esc(C.axisMoney(v))}</text>`; });
     xLabelIdx(o.labels, pw, o.xGap || 56).forEach(i => { g += `<text x="${cx(i)}" y="${H - 6}" text-anchor="middle">${esc(fx(i))}</text>`; });
     g += `<rect class="sel" x="0" y="${mt}" width="${band}" height="${ph}" rx="3" style="fill:var(--ink);opacity:0;pointer-events:none"/>`;
     const gap = bw > 6 ? 1.5 : 0;
@@ -242,13 +241,12 @@
       });
     }
     if (o.markIdx != null && o.markIdx >= 0 && o.markIdx < n){ const mx = ml + band * o.markIdx; g += `<line x1="${mx}" x2="${mx}" y1="${mt}" y2="${mt + ph}" style="stroke:var(--muted);stroke-dasharray:2 4"/><text x="${mx + 5}" y="${mt + 10}" class="dl" style="fill:var(--muted)">${esc(o.markLabel || 'Now')}</text>`; }
-    if (pv){
-      if (o.pct.ref && o.pct.ref <= pHi){ const ry = yp(o.pct.ref); g += `<line x1="${ml}" x2="${W - mr}" y1="${ry}" y2="${ry}" style="stroke:var(--ink-2);stroke-dasharray:5 4;opacity:.7"/><text x="${W - mr - 4}" y="${ry + 13}" text-anchor="end" class="dl" style="fill:var(--ink-2);paint-order:stroke;stroke:var(--surface);stroke-width:3px">${esc(o.pct.refLabel || '')}</text>`; }
-      let d = ''; pv.forEach((v, i) => { if (v == null) return; d += (d ? 'L' : 'M') + cx(i).toFixed(1) + ',' + yp(v).toFixed(1); });
-      if (d) g += `<path d="${d}" style="fill:none;stroke:var(--surface);stroke-width:5;stroke-linejoin:round"/><path d="${d}" style="fill:none;stroke:var(--ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round"/>`;
-      if (band >= 9) pv.forEach((v, i) => { if (v != null) g += `<circle cx="${cx(i)}" cy="${yp(v)}" r="2.6" style="fill:var(--ink);stroke:var(--surface);stroke-width:1.5"/>`; });
+    if (lv){
+      let d = ''; lv.forEach((v, i) => { if (v == null) return; d += (i && lv[i - 1] != null ? 'L' : 'M') + cx(i).toFixed(1) + ',' + y(v).toFixed(1); });
+      if (d) g += `<path d="${d}" style="fill:none;stroke:var(--surface);stroke-width:7;stroke-linejoin:round"/><path d="${d}" style="fill:none;stroke:${lc};stroke-width:3.5;stroke-linejoin:round;stroke-linecap:round"/>`;
+      if (band >= 9) lv.forEach((v, i) => { if (v != null) g += `<circle cx="${cx(i)}" cy="${y(v)}" r="3" style="fill:${lc};stroke:var(--surface);stroke-width:1.5"/>`; });
       let lastLbl = -1e9;
-      pv.forEach((v, i) => { if (v != null && v > pHi && cx(i) - lastLbl > 34){ lastLbl = cx(i); g += `<text x="${cx(i)}" y="${mt - 3}" text-anchor="middle" class="dl" style="font-size:10px;fill:var(--ink);paint-order:stroke;stroke:var(--surface);stroke-width:3px">↑${Math.round(v)}%</text>`; } });
+      lv.forEach((v, i) => { if (v != null && v > hi && cx(i) - lastLbl > 40){ lastLbl = cx(i); g += `<text x="${cx(i)}" y="${mt - 3}" text-anchor="middle" class="dl" style="font-size:10px;fill:${lc};paint-order:stroke;stroke:var(--surface);stroke-width:3px">↑${esc(C.axisMoney(v))}</text>`; } });
     }
     g += `<rect class="hl" x="0" y="${mt}" width="${band}" height="${ph}" style="fill:var(--ink);opacity:0;pointer-events:none"/><rect class="hit" x="${ml}" y="0" width="${pw}" height="${H}" fill="transparent" style="cursor:${o.onPick ? 'pointer' : 'default'}"/></svg>`;
     el.innerHTML = g;

@@ -149,9 +149,11 @@ secondary columns below 560px (`.hide-sm`).
 - Navigation: sidebar ≥1100px; hamburger drawer below that; bottom tab bar below 900px. Theme toggle
   in the header (sun/moon) and in the menu (Dark/Light/Auto).
 - Where the money goes (Budget): one bucket ticked → bars split by that bucket's lines (top 7 + Other).
-  The line on the right axis is the ticked spend as % of that month's total income (a deliberate
-  dual axis Dan asked for; outlier months such as Dec 2024/Jan 2025, where the sheet booked the house
-  purchase against income, are clipped and labelled). Tapping a bar opens that month's breakdown
+  A thick red line shows total income in £ on the same axis as the bars (v2.5, 2026-10-30; replaced the
+  v2.2 right-hand % axis, which made 100% look like ~£5k at a glance). Months with zero or negative
+  income, such as Dec 2024/Jan 2025 where the sheet booked the house purchase against income, are left
+  as gaps; one-off spikes are clipped and labelled. The line is hidden when one bucket is split by line,
+  since full income would flatten a single bucket's bars. Tapping a bar opens that month's breakdown
   below the chart: bucket % of income, then each line's % of its bucket.
 - Calendar reminder: Settings or menu → "Monthly reminder" downloads a repeating `.ics` (9am on the 1st, nudge
   2 days later). The home-screen icon badge shows accounts left to update where supported.
