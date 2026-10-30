@@ -322,6 +322,7 @@
             <div class="small muted" style="margin-bottom:10px">${L.DEMO ? 'Demo: made-up data. Changes stay in this browser until you reset it, and never reach GitHub.' : L.PREVIEW ? 'Preview mode: changes stay in this browser only and never reach GitHub.' : 'Encrypted with your PIN and saved to <code>ledger.json</code> in the GitHub repo. Every save is a commit, so nothing is ever lost.'}
               ${s.meta.updatedAt ? '<br>Last change: ' + new Date(s.meta.updatedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : ''}${s.meta.importedFrom ? '<br>Imported from: ' + esc(s.meta.importedFrom) : ''}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
+              ${L.LOCAL ? '' : '<button class="btn" data-act="versions">Versions…</button>'}
               <button class="btn" data-act="backup">Download backup</button>
               <button class="btn" data-act="importFile">Import a file…</button>
               ${L.PREVIEW ? '<button class="btn danger" data-act="resetPreview">Reset preview</button>' : ''}
@@ -334,6 +335,88 @@
       };
     });
   }
+  // ---------------- versions ----------------
+  // Lists every save of ledger.json (newest first). Tap one to see what it held; restoring saves it as a
+  // new version, so the current one stays in the list and a restore can itself be undone.
+  const V = { list: [], page: 0, more: true, loading: false, error: null, open: null, picked: {} };
+  const when = d => new Date(d).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  // Model results are memoised for L.S, so clear the cache either side of measuring another state.
+  const statsOf = st => { M.invalidate(); const l = M.latest(st), nw = M.netWorth(st); M.invalidate(); return { nw, month: l && l.m, accounts: st.accounts.filter(a => !a.archived).length, lines: st.budget.lines.length, updated: st.meta.updatedAt }; };
+  async function loadVersions(){
+    if (V.loading || !V.more) return;
+    V.loading = true; V.error = null; L.modal.refresh();
+    try { const rows = await L.versions.list(V.page + 1); V.page++; V.list = V.list.concat(rows); V.more = rows.length === 30; }
+    catch(e){ V.error = e.name === 'GhAuthError' ? 'GitHub rejected this device\'s token, so versions can\'t be listed.' : 'Couldn\'t reach GitHub. Check the connection and try again.'; }
+    V.loading = false; L.modal.refresh();
+  }
+  function versionDetail(v, i){
+    const p = V.picked[v.sha];
+    if (!p || p.loading) return '<div class="ver-detail small muted">Opening…</div>';
+    if (p.error) return `<div class="ver-detail small neg">${esc(p.error)}</div>`;
+    const now = statsOf(L.S), then = p.stats, row = (k, a, b) => `<tr><td>${k}</td><td class="num">${a}</td><td class="num muted">${b}</td></tr>`;
+    return `<div class="ver-detail">
+      <table class="ver-compare small"><tr><th></th><th class="num">This version</th><th class="num">Now</th></tr>
+        ${row('Net worth', gbp(then.nw), gbp(now.nw))}
+        ${row('Latest check-in', then.month ? M.lbl(then.month) : '—', now.month ? M.lbl(now.month) : '—')}
+        ${row('Accounts', then.accounts, now.accounts)}
+        ${row('Budget lines', then.lines, now.lines)}</table>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        ${i === 0 ? '<span class="small muted">This is the version you\'re using now.</span>' : `<button class="btn primary sm" data-act="verRestore" data-sha="${v.sha}">Restore this version</button>`}
+        <button class="btn sm" data-act="verDownload" data-sha="${v.sha}">Download it</button>
+      </div></div>`;
+  }
+  function openVersions(){
+    Object.assign(V, { list: [], page: 0, more: true, error: null, open: null, picked: {} });
+    L.modal.open(() => {
+      let day = '';
+      const rows = V.list.map((v, i) => {
+        const d = new Date(v.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        const head = d !== day ? `<h4 class="ver-day">${esc(day = d)}</h4>` : '';
+        const t = new Date(v.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const tag = i === 0 ? '<span class="ver-tag">Current</span>' : /^Restore/.test(v.message) ? '<span class="ver-tag muted">Restore</span>' : '';
+        return `${head}<div class="ver-row${V.open === v.sha ? ' on' : ''}"><button class="ver-btn" data-act="verOpen" data-sha="${v.sha}"><span>${t}</span>${tag}<span class="ver-caret">${L.icons.caret}</span></button>${V.open === v.sha ? versionDetail(v, i) : ''}</div>`;
+      }).join('');
+      return {
+        title: 'Versions', narrow: true,
+        sub: 'Every save is kept. Tap one to compare it with now, then restore it if you need to.',
+        body: `${rows}${V.error ? `<div class="note box">${esc(V.error)}</div>` : ''}
+          ${V.loading ? '<div class="small muted" style="padding:12px 0">Loading…</div>' : V.more ? '<button class="btn block ghost" data-act="verMore" style="margin-top:10px">Show older</button>' : ''}
+          <div class="note">Restoring saves the old version as a new one, so nothing is deleted and you can switch back. Phone notification settings are kept as they are now.</div>`,
+        foot: '<button class="btn" data-act="settings">Back to settings</button>',
+      };
+    });
+    loadVersions();
+  }
+  Object.assign(L.acts, {
+    versions(){ openVersions(); },
+    verMore(){ loadVersions(); },
+    async verOpen(el){
+      const sha = el.dataset.sha;
+      V.open = V.open === sha ? null : sha; L.modal.refresh();
+      if (!V.open || (V.picked[sha] && !V.picked[sha].retry)) return;
+      V.picked[sha] = { loading: true }; L.modal.refresh();
+      try { const st = await L.versions.load(sha); V.picked[sha] = { state: st, stats: statsOf(st) }; }
+      catch(e){ V.picked[sha] = e.name === 'OperationError' ? { error: 'This version was saved with a different PIN, so it can\'t be opened here.' } : { error: 'Couldn\'t open this version. Close it and tap again to retry.', retry: true }; }
+      L.modal.refresh();
+    },
+    verDownload(el){
+      const p = V.picked[el.dataset.sha], v = V.list.find(x => x.sha === el.dataset.sha); if (!p || !p.state) return;
+      const blob = new Blob([JSON.stringify(p.state, null, 1)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ledger-version-' + v.date.slice(0, 16).replace(/[T:]/g, '-') + '.json'; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    },
+    verRestore(el){
+      const p = V.picked[el.dataset.sha], v = V.list.find(x => x.sha === el.dataset.sha); if (!p || !p.state) return;
+      if (!confirm('Restore the version saved ' + when(v.date) + '?\n\nIt becomes the current version for both of you. Today\'s version stays in Versions, so you can switch back.')) return;
+      const next = JSON.parse(JSON.stringify(p.state));
+      next.push = L.S.push; // notification sign-ups belong to devices, not to a point in time
+      next.meta.updatedAt = new Date().toISOString(); next.meta.restoredFrom = { sha: v.sha, date: v.date };
+      L.S = L.normalise(next); M.invalidate();
+      L.store.queue(L.S, 'Restore ledger to version from ' + v.date);
+      L.modal.close(); L.render(); L.toast('Restored the version from ' + when(v.date));
+    },
+  });
+
   $('import-input').addEventListener('change', async ev => {
     const f = ev.target.files[0]; ev.target.value = ''; if (!f) return;
     try {

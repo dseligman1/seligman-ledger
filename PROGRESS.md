@@ -177,6 +177,17 @@ secondary columns below 560px (`.hide-sm`).
 - GitHub can delay scheduled runs by some minutes, and pauses schedules in public repos after 60 days
   without commits (each save is a commit, so monthly use keeps it alive).
 
+## Versions (v2.6, in-app restore)
+
+Settings → Your data → **Versions…** lists every save of `ledger.json` (GitHub commits on that path,
+30 a page, "Show older" for more), grouped by day. Tap one to decrypt it with the current PIN and
+compare net worth, latest check-in, accounts and budget lines against now. **Restore this version**
+re-saves it as a new commit ("Restore ledger to version from …"), so restores are themselves undoable;
+`meta.restoredFrom` records the source. `push.subs` is kept from the current state (device sign-ups,
+not data). A version saved under an older PIN shows "saved with a different PIN". Hidden in preview/demo.
+Code: `L.versions` in `js/core.js`, `openVersions` and `ver*` actions in `js/app.js`, `.ver-*` in `style.css`.
+Tested with stubbed history in headless Chrome (list, paging, PIN error, compare, restore); not yet on a phone.
+
 ## Backups (monthly, automatic)
 
 Every save is already a commit, so `git log ledger.json` holds every version. On top of that, two
@@ -193,6 +204,7 @@ monthly copies on the 7th guard against deleted files, a rewritten history or a 
    zip the project folder (which includes the unencrypted preview seed). Log: `backup.log`.
 
 **Restore**
+- Any earlier save, from the app: Settings → Versions… (see above). Needs the repo and the PIN.
 - Whole repo: `git clone seligman-ledger-<date>.bundle seligman-ledger` gives a full working copy
   with history; push it to a new or emptied GitHub repo.
 - Just the data: copy `ledger-<date>.json` over `ledger.json` in the repo and commit + push. The

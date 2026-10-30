@@ -48,8 +48,8 @@
   const authErr = () => { const e = new Error('auth'); e.name = 'GhAuthError'; return e; };
   const ghUrl = path => `${CFG.api}/repos/${CFG.owner}/${CFG.repo}/contents/${path}`;
   const headers = () => ({ Authorization: `Bearer ${store.pat}`, Accept: 'application/vnd.github+json' });
-  async function ghGet(path){
-    const res = await fetch(ghUrl(path) + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+  async function ghGet(path, ref){
+    const res = await fetch(ghUrl(path) + '?t=' + Date.now() + (ref ? '&ref=' + ref : ''), { headers: headers(), cache: 'no-store' });
     if (res.status === 404) return null;
     if (res.status === 401 || res.status === 403) throw authErr();
     if (!res.ok) throw new Error('GitHub read failed: ' + res.status);
@@ -99,8 +99,9 @@
       return { state: null };
     },
 
-    queue(state){
+    queue(state, message){
       this.dirty = true;
+      if (message) this.message = message;
       if (L.LOCAL){ L.safeLS.set(L.DEMO ? CFG.demoStateKey : CFG.previewKey, JSON.stringify(state)); this.dirty = false; this.onStatus('preview', (L.DEMO ? 'Demo' : 'Preview') + ' · saved in this browser'); return; }
       clearTimeout(this.saveTimer);
       this.onStatus('saving', 'Saving…');
@@ -114,14 +115,15 @@
       try {
         const latest = await ghGet(CFG.file);
         const payload = await encrypt(state, this.pin);
+        const msg = () => this.message || 'Update ledger — ' + new Date().toISOString();
         let res;
-        try { res = await ghPut(CFG.file, payload, latest ? latest.sha : null, 'Update ledger — ' + new Date().toISOString()); }
+        try { res = await ghPut(CFG.file, payload, latest ? latest.sha : null, msg()); }
         catch(e){
           if (e.name !== 'GhConflict') throw e;
           const again = await ghGet(CFG.file);
-          res = await ghPut(CFG.file, payload, again ? again.sha : null, 'Update ledger — ' + new Date().toISOString());
+          res = await ghPut(CFG.file, payload, again ? again.sha : null, msg());
         }
-        this.sha = res.content.sha; this.dirty = false;
+        this.sha = res.content.sha; this.dirty = false; this.message = null;
         this.onStatus('saved', 'Synced ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }));
       } catch(e){
         this.onStatus('error', e.name === 'GhAuthError' ? 'Token rejected — open Settings' : 'Not synced — retrying on next edit');
@@ -143,6 +145,22 @@
     },
 
     lock(){ this.pin = null; location.reload(); },
+  };
+
+  // Versions: every save is a commit to ledger.json, so its commit list is the full version history.
+  L.versions = {
+    async list(page = 1){
+      const res = await fetch(`${CFG.api}/repos/${CFG.owner}/${CFG.repo}/commits?path=${CFG.file}&per_page=30&page=${page}&t=${Date.now()}`, { headers: headers(), cache: 'no-store' });
+      if (res.status === 401 || res.status === 403) throw authErr();
+      if (!res.ok) throw new Error('GitHub read failed: ' + res.status);
+      return (await res.json()).map(c => ({ sha: c.sha, date: c.commit.committer.date, message: c.commit.message.split('\n')[0] }));
+    },
+    // Throws OperationError if that version was saved with a different PIN.
+    async load(sha){
+      const r = await ghGet(CFG.file, sha);
+      if (!r) throw new Error('missing');
+      return L.normalise(await decrypt(r.content, store.pin));
+    },
   };
 
   // Fill any missing collections so older or hand-built files never crash the UI.

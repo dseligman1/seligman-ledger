@@ -368,6 +368,22 @@ button.chip.on { border-color: var(--accent); color: var(--ink); background: var
 .edit-list .input { padding: 8px 10px; }
 .add-link { border: 0; background: transparent; color: var(--accent); font-weight: 500; padding: 8px 0; font-size: 14px; }
 
+.ver-day { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 16px 0 6px; }
+.ver-day:first-child { margin-top: 0; }
+.ver-row { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; background: var(--surface); }
+.ver-row.on { border-color: var(--accent); }
+.ver-btn { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--ink); padding: 10px 12px; font-size: 14px; text-align: left; }
+.ver-caret { margin-left: auto; display: inline-flex; color: var(--muted); transition: transform .15s; }
+.ver-caret svg { width: 16px; height: 16px; }
+.ver-row.on .ver-caret { transform: rotate(180deg); }
+.ver-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.ver-tag.muted { background: var(--surface-2); color: var(--muted); }
+.ver-detail { padding: 0 12px 12px; }
+.ver-compare { width: 100%; border-collapse: collapse; }
+.ver-compare th { font-weight: 500; color: var(--muted); text-align: left; padding: 4px 0; }
+.ver-compare td { padding: 4px 0; border-top: 1px solid var(--line); }
+.ver-compare .num { text-align: right; padding-left: 10px; white-space: nowrap; }
+
 .scn { border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: var(--surface-2); }
 .scn + .scn { margin-top: 10px; }
 .scn-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
