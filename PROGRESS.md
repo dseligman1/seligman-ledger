@@ -217,6 +217,11 @@ v2.4 (2026-10-24): demo mode for showing the app to others (see "Demo mode" abov
 Chrome at 390px and 1280px: login (wrong and right PIN), all five pages, check-in edit kept after
 reload, reset, exit; no GitHub requests and no JS errors in demo mode. File versions bumped to `?v=2.4.0`.
 
+v2.5 (2026-10-30): "Where the money goes" shows income as a thick red £ line on the bar axis (replaces the
+right-hand % axis); 8th series colour changed red → slate blue so Savings contributions doesn't clash.
+Files bumped to `?v=2.5.0` (`0b4dd4e`): the first push forgot the bump and the PIN unlock stopped working
+until it was added. **Always bump `?v=` in index.html when any js/css file changes.**
+
 ### Next steps / ideas
 - Check on the iPhone that moving between boxes keeps the keyboard up after the redraw (desktop tested only).
 - Dan's feedback pass on the preview.
