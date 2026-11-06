@@ -154,6 +154,50 @@
   M.tagTotalAt = (s, tagId, snap) => (!snap || !snap.balances || snap.totals) ? null : M.tagAccounts(s, tagId).reduce((t, a) => t + (snap.balances[a.id] || 0), 0);
   M.untaggedAccounts = s => s.accounts.filter(a => !a.archived && a.bucket !== 'asset' && !a.tags.length);
 
+  // ---------------- what drove the change ----------------
+  // Accounts under the market-linked tag move with share and fund prices, which our spending doesn't control.
+  // settings.marketTagId: a tag id, 'none', or empty = pick the tag whose name says market/investments.
+  M.marketTag = s => {
+    const id = s.settings && s.settings.marketTagId;
+    if (id === 'none') return null;
+    if (id && M.tag(s, id)) return M.tag(s, id);
+    return s.tags.find(t => /market/i.test(t.name)) || s.tags.find(t => /invest|stocks|shares|funds/i.test(t.name)) || null;
+  };
+  // Splits the liquid change between two detailed snapshots into "ours" (cash, current accounts, cards:
+  // what spending and saving control) and "market" (price movement in market-linked accounts).
+  // Money paid into investments is ours moving, not market growth: it comes from b.invested when entered at
+  // check-in (+ paid in, − taken out), otherwise from transfers spotted between the two sides (within 5%).
+  M.drivers = (s, a, b) => {
+    if (!a || !b || !a.balances || !b.balances || a.totals || b.totals) return null;
+    const tag = M.marketTag(s); if (!tag) return null;
+    const rows = s.accounts.filter(x => x.bucket !== 'asset' && (a.balances[x.id] != null || b.balances[x.id] != null))
+      .map(x => ({ acc: x, market: x.tags.includes(tag.id), d: (b.balances[x.id] ?? 0) - (a.balances[x.id] ?? 0) }))
+      .filter(r => Math.abs(r.d) >= 1).sort((p, q) => Math.abs(q.d) - Math.abs(p.d));
+    const entered = b.invested != null && b.invested !== '' && !isNaN(Number(b.invested));
+    let paidIn = entered ? Number(b.invested) : 0;
+    if (!entered){
+      const used = new Set(), big = rows.filter(r => Math.abs(r.d) >= 500);
+      big.forEach(out => {
+        if (out.d >= 0 || used.has(out.acc.id)) return;
+        const inn = big.find(r => r.d > 0 && r.market !== out.market && !used.has(r.acc.id) && Math.abs(r.d + out.d) <= 0.05 * Math.max(r.d, -out.d));
+        if (inn){ const amt = Math.min(inn.d, -out.d); paidIn += inn.market ? amt : -amt; used.add(out.acc.id); used.add(inn.acc.id); }
+      });
+    }
+    const sum = list => list.reduce((t, r) => t + r.d, 0);
+    const marketRows = rows.filter(r => r.market), ourRows = rows.filter(r => !r.market);
+    const market = sum(marketRows) - paidIn, ours = sum(ourRows) + paidIn;
+    return { from: a.month, to: b.month, tag, total: market + ours, market, ours, paidIn, paidInEntered: entered,
+      lead: Math.abs(market) > Math.abs(ours) ? 'market' : 'ours', marketRows, ourRows };
+  };
+  // One plain-English line for summaries. money(n) formats an amount without a sign.
+  M.driverLine = (dr, money) => {
+    if (!dr) return null;
+    const dir = n => Math.round(n) >= 0 ? 'up' : 'down';
+    const ours = Math.round(dr.ours) ? `our day-to-day money ${dir(dr.ours)} ${money(Math.abs(dr.ours))}` : 'our day-to-day money unchanged';
+    const mkt = Math.round(dr.market) ? `investments ${dir(dr.market)} ${money(Math.abs(dr.market))} on market prices (outside our control)` : 'investments unchanged on market prices';
+    return dr.lead === 'market' ? `Markets drove it: ${mkt}; ${ours}.` : `Our own money drove it: ${ours}; ${mkt}.`;
+  };
+
   // ---------------- budget ----------------
   M.KINDS = [
     { id:'income', name:'Income' }, { id:'bonus', name:'Bonus' },

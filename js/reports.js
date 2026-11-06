@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   const L = window.Ledger, M = L.model, RM = L.reportModel, esc = L.charts.esc;
-  const R = L.reports = {}, W = 1080, H = 1740;
+  const R = L.reports = {}, W = 1080, H = 2080;
   const P = { paper:'#F6F3EB', ink:'#20251F', muted:'#647064', rule:'#D8DED2', dark:'#1B271F', yellow:'#E8B83A', blue:'#246DAC', red:'#B84736', green:'#286B4B', white:'#FFFFFF' };
   const gbp = n => n == null ? 'Not available' : (n < 0 ? '-' : '') + '£' + Math.abs(Math.round(n)).toLocaleString('en-GB');
   const signed = n => n == null ? 'Not available' : (Math.round(n) > 0 ? '+' : '') + gbp(n);
@@ -36,12 +36,32 @@
     rect(64, 218, 952, 292, P.dark, 22);
     wrap(report.headline, 94, 247, 888, 36, P.white, 2, '700');
     let by = 309;
-    report.bullets.forEach(b => { rect(95, by + 10, 7, 7, P.yellow, 3); by += wrap(b, 119, by, 856, 27, '#ECF0E9', 2) + 13; });
+    report.bullets.slice(0, 3).forEach(b => { rect(95, by + 10, 7, 7, P.yellow, 3); by += wrap(b, 119, by, 856, 27, '#ECF0E9', 2) + 13; });
     metric('Liquid funds', gbp(report.liquid), 'Savings + current accounts', 64, 548);
-    metric('Change since last check-in', signed(report.delta), report.gap == null ? 'Previous snapshot needed' : `${gbp(Math.abs(report.gap))} ${Math.round(report.gap) >= 0 ? 'ahead of' : 'behind'} plan`, 556, 548, report.delta == null ? P.muted : report.delta < 0 ? P.red : P.green);
+    metric('Change since last check-in', signed(report.delta), report.gap == null ? 'Previous snapshot needed' : report.oursGap != null ? `${gbp(Math.abs(report.oursGap))} ${Math.round(report.oursGap) >= 0 ? 'ahead of' : 'behind'} plan, excl. markets` : `${gbp(Math.abs(report.gap))} ${Math.round(report.gap) >= 0 ? 'ahead of' : 'behind'} plan`, 556, 548, report.delta == null ? P.muted : report.delta < 0 ? P.red : P.green);
     metric('Months of cover', report.cover == null ? 'Not available' : report.cover.toFixed(1) + ' months', `${report.coverYear} planned costs, with adjustments`, 64, 680);
     metric('Net worth', gbp(report.netWorth), report.hasAssets ? 'Includes last recorded asset estimates' : 'No other assets recorded', 556, 680);
     line(64, 805, 1016, 805);
+
+    // What drove the change: our own money (controllable) versus market prices (not controllable).
+    const dv = report.drivers;
+    text('What drove the change', 64, 834, 34, P.ink, '700');
+    text(dv ? (dv.lead === 'market' ? 'Mostly market prices this month, not our spending' : 'Mostly our own spending and saving this month') : 'Split between what we control and what markets did', 64, 879, 24, P.muted);
+    const lead = list => list && list.length ? 'Biggest: ' + list.slice(0, 2).map(r => `${r.name} ${signed(r.d)}`).join(', ') : 'No accounts moved';
+    [[64, 'WITHIN OUR CONTROL', 'Cash, current accounts, cards', dv && dv.ours, dv && dv.ourTop, dv && dv.lead === 'ours'],
+     [548, 'MARKET MOVEMENT', `Not controllable: ${dv ? dv.tag : 'investment'} prices`, dv && dv.market, dv && dv.marketTop, dv && dv.lead === 'market']].forEach(([x, k, sub, v, list, isLead]) => {
+      rect(x, 920, 468, 168, isLead ? '#E3E6D6' : '#EEEFE6', 14);
+      if (isLead) rect(x, 920, 8, 168, P.yellow, 4);
+      text(k, x + 26, 940, 20, P.muted, '700'); text(sub, x + 26, 966, 20, P.muted);
+      text(dv ? signed(v) : 'Not available', x + 26, 998, 42, !dv || !Math.round(v) ? P.muted : Math.round(v) < 0 ? P.red : P.green, '700');
+      if (dv) wrap(lead(list), x + 26, 1050, 420, 20, P.muted, 1);
+    });
+    const dnote = !dv ? 'Tag investment accounts "Market-linked" and log two check-ins to see this split.'
+      : dv.paidIn && Math.round(dv.paidIn) ? `${gbp(Math.abs(dv.paidIn))} ${dv.paidIn > 0 ? 'paid into' : 'taken out of'} investments counts as our money moving, not market growth.`
+      : 'Market movement = change in market-linked accounts, less any money we paid in.';
+    wrap(dnote, 64, 1104, 952, 21, P.muted, 1);
+    line(64, 1145, 1016, 1145);
+    c.translate(0, 340);
 
     text('The balance over time', 64, 834, 34, P.ink, '700');
     text('Liquid funds at each check-in', 64, 879, 24, P.muted);
@@ -57,15 +77,17 @@
     line(64, 1162, 1016, 1162);
 
     text('How we did against the plan', 64, 1191, 34, P.ink, '700');
-    rect(65, 1240, 16, 16, P.blue); text('Balance change', 91, 1236, 23, P.muted);
-    rect(327, 1240, 16, 16, '#A3AB9C'); text('Budget plan', 353, 1236, 23, P.muted);
-    const values = pts.flatMap(p => [p.actual, p.plan]).filter(v => v != null);
+    const oursMode = pts.some(p => p.ours != null);
+    rect(65, 1240, 16, 16, P.blue); text(oursMode ? 'Change excl. markets' : 'Balance change', 91, 1236, 23, P.muted);
+    rect(oursMode ? 380 : 327, 1240, 16, 16, '#A3AB9C'); text('Budget plan', oursMode ? 406 : 353, 1236, 23, P.muted);
+    const bar = p => oursMode && p.ours != null ? p.ours : p.actual;
+    const values = pts.flatMap(p => [bar(p), p.plan]).filter(v => v != null);
     let lo = Math.min(0, ...values), hi = Math.max(0, ...values); if (hi - lo < 1){ hi = 1; lo = -1; }
     const padding = (hi - lo) * .12; if (lo < 0) lo -= padding; if (hi > 0) hi += padding;
     const cy0 = 1290, cy1 = 1437, cy = v => cy1 - (v - lo) / (hi - lo) * (cy1 - cy0), zero = cy(0);
     [lo, 0, hi].filter((v, i, a) => a.indexOf(v) === i).forEach(v => { const y = cy(v); line(x0, y, x1, y, v === 0 ? '#9BA593' : P.rule); text(smallMoney(v), 132, y - 11, 22, P.muted, '400', 'right'); });
     pts.forEach((p, i) => { const x = x0 + 52 + i * (x1 - x0 - 104) / 5;
-      [[p.actual, x - 28, p.actual < 0 ? P.red : P.blue], [p.plan, x + 5, '#A3AB9C']].forEach(([v, bx, color]) => { if (v == null){ text('–', bx + 12, zero - 13, 23, P.muted, '400', 'center'); return; } rect(bx, Math.min(zero, cy(v)), 24, Math.max(2, Math.abs(cy(v) - zero)), color, 2); });
+      [[bar(p), x - 28, bar(p) < 0 ? P.red : P.blue], [p.plan, x + 5, '#A3AB9C']].forEach(([v, bx, color]) => { if (v == null){ text('–', bx + 12, zero - 13, 23, P.muted, '400', 'center'); return; } rect(bx, Math.min(zero, cy(v)), 24, Math.max(2, Math.abs(cy(v) - zero)), color, 2); });
       text(M.lbl(p.month, 'mon'), x, 1457, 23, P.muted, '400', 'center');
     });
     text('Review months; negative bars mean funds fell. Gaps = no comparison.', 64, 1504, 22, P.muted);
@@ -74,7 +96,7 @@
     wrap(next, 87, 1572, 902, 26, P.ink, 1, '700');
     const period = report.fromDate ? `${M.dateLbl(report.fromDate)} to ${M.dateLbl(report.balanceDate)}` : `Balance snapshot: ${M.dateLbl(report.balanceDate)}`;
     text(period + '  ·  Check-in snapshots, not calendar-month transactions.', 64, 1643, 20, P.muted);
-    text('Balance changes include investment movements. Plan is not actual spending.', 64, 1674, 20, P.muted);
+    text(oursMode ? 'Plan bars leave out market price moves. Plan is not actual spending.' : 'Balance changes include investment movements. Plan is not actual spending.', 64, 1674, 20, P.muted);
     text('PRIVATE FAMILY REVIEW', 64, 1707, 17, P.muted, '700');
     if (L.DEMO) text('DEMO · MADE-UP FIGURES', 1016, 1707, 17, P.muted, '700', 'right');
     return canvas;
@@ -145,7 +167,7 @@
       return {
         title: `${r.title} review`,
         sub: `Based on the ${M.lbl(cm, 'month')} check-in. Choose WhatsApp from your phone's share menu.`,
-        body: `<div class="report-toolbar"><label class="field">Review month<select class="input" id="report-month">${months().map(m => `<option value="${m}" ${m === cm ? 'selected' : ''}>${esc(L.S.monthlyReports[m].title)}</option>`).join('')}</select></label><div class="small muted" id="report-status" role="status">Preparing image and PDF…</div></div><div class="report-preview" id="report-preview"></div><details class="report-details"><summary>Read summary and figures</summary><p>${esc(r.headline)}</p><ul>${r.bullets.map(b => `<li>${esc(b)}</li>`).join('')}</ul><p>Liquid funds: ${gbp(r.liquid)}. Net worth: ${gbp(r.netWorth)}. ${r.cover == null ? '' : 'Cover: ' + r.cover.toFixed(1) + ' months.'}</p><p>Monthly change uses dated check-in snapshots, so it is an approximation of the calendar month. It includes investment movements.</p></details>`,
+        body: `<div class="report-toolbar"><label class="field">Review month<select class="input" id="report-month">${months().map(m => `<option value="${m}" ${m === cm ? 'selected' : ''}>${esc(L.S.monthlyReports[m].title)}</option>`).join('')}</select></label><div class="small muted" id="report-status" role="status">Preparing image and PDF…</div></div><div class="report-preview" id="report-preview"></div><details class="report-details"><summary>Read summary and figures</summary><p>${esc(r.headline)}</p><ul>${r.bullets.map(b => `<li>${esc(b)}</li>`).join('')}</ul><p>Liquid funds: ${gbp(r.liquid)}. Net worth: ${gbp(r.netWorth)}. ${r.cover == null ? '' : 'Cover: ' + r.cover.toFixed(1) + ' months.'}</p><p>Monthly change uses dated check-in snapshots, so it is an approximation of the calendar month.${r.drivers ? ` Within our control (cash, current accounts, cards): ${signed(r.drivers.ours)}. Market movement on ${esc(r.drivers.tag)} accounts (not controllable): ${signed(r.drivers.market)}.` : ' It includes investment movements.'}</p></details>`,
         foot: `<div class="report-actions"><button class="btn primary" data-report-export="share" disabled>Share image…</button><button class="btn" data-report-export="copy" disabled>Copy image</button><button class="btn" data-report-export="png" disabled>Save image</button><button class="btn" data-report-export="pdf" disabled>Save PDF</button></div>`,
         onMount(body){
           body.querySelector('#report-month').addEventListener('change', e => R.open(e.target.value));

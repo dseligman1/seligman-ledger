@@ -21,6 +21,8 @@
   const pageHead = (title, sub, actions = '') => `<div class="page-head"><div><h1>${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${actions ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div>` : ''}</div>`;
   const plusBtn = (act, label, extra = '') => `<button class="btn" data-act="${act}" ${extra}>${L.icons.plus.replace('<svg', '<svg width="16" height="16"')}${label}</button>`;
   const vis = L.vis;
+  // iPhone number keypads have no minus key: a ± button next to amounts that can be negative.
+  const signBtn = '<button type="button" class="sign-btn" data-sign tabindex="-1" aria-label="Make negative or positive">+/−</button>';
   const updLbl = (on, last) => on ? `<span class="upd ok">✓ Updated ${M.dateLbl(on, false)}</span>` : `<span class="upd due">Due${last ? ` · last updated ${M.dateLbl(last.date, false)}` : ''}</span>`;
 
   function ranged(){ const tl = M.timeline(S()); const n = { '1y': 13, '2y': 25, '3y': 37 }[UI.range]; return n ? tl.slice(-n) : tl; }
@@ -356,9 +358,24 @@
       return `<div class="row clickable" data-act="goTags"><div><div class="name"><span class="chip"><i class="sw" style="background:${tagColor(t)}"></i>${esc(t.name)}</span></div><div class="meta">${M.tagAccounts(s, t.id).length} accounts</div></div><div class="right"><div class="big">${gbp(now)}</div><div class="chg">${was == null ? '' : chg(now - was)}</div></div></div>`;
     }).join('');
 
+    const dr = d.length >= 2 ? M.drivers(s, dp, ds) : null, mtag = M.marketTag(s);
+    const drRows = list => list.slice(0, 3).map(r => `<div class="row clickable" data-act="openAccount" data-id="${r.acc.id}"><div><div class="name">${esc(r.acc.name)}</div></div><div class="right"><div class="big ${cls(r.d)}">${signed(r.d)}</div></div></div>`).join('') || '<div class="empty small">No change.</div>';
+    const driverCard = !mtag ? `<section class="card s12"><div class="card-head"><div><h2>What drove the change</h2><div class="sub">Split the monthly swing into what we control and what markets did</div></div><div class="actions"><button class="btn sm" data-act="manageTags">Manage tags</button></div></div>
+        <div class="empty">Add a <b>Market-linked</b> tag to the accounts that hold shares or funds, and the app will separate market movement from our own spending and saving.</div></section>`
+      : !dr ? '' : `<section class="card s12 drivers"><div class="card-head"><div><h2>What drove the change</h2><div class="sub">${M.lbl(dr.from, 'mon')} → ${M.lbl(dr.to, 'mon')} check-ins · liquid funds ${signed(dr.total)}</div></div></div>
+        <div class="verdict"><div class="vi ${dr.lead === 'market' ? 'warn' : Math.round(dr.ours) >= 0 ? 'good' : 'bad'}" aria-hidden="true">${dr.lead === 'market' ? '~' : '£'}</div><div class="vt"><strong>${dr.lead === 'market' ? 'Mostly market movement, not our spending' : 'Mostly down to our own spending and saving'}</strong>${dr.lead === 'market'
+          ? `${esc(dr.tag.name)} accounts ${dr.market >= 0 ? 'rose' : 'fell'} <b>${gbp(Math.abs(dr.market))}</b> as share and fund prices moved. That isn't something our spending controls. Our day-to-day money moved <b>${signed(dr.ours)}</b>.`
+          : `Our day-to-day money moved <b>${signed(dr.ours)}</b>${dr.ourRows[0] ? `, led by ${esc(dr.ourRows[0].acc.name)} (${signed(dr.ourRows[0].d)})` : ''}. ${Math.round(dr.market) ? `Market prices moved our ${esc(dr.tag.name)} accounts <b>${signed(dr.market)}</b>, which is outside our control.` : `Our ${esc(dr.tag.name)} accounts barely moved.`}`}</div></div>
+        <div class="drv-split">
+          <div class="drv ${dr.lead === 'ours' ? 'lead' : ''}"><div class="k">Within our control</div><div class="v ${cls(dr.ours)}">${signed(dr.ours)}</div><div class="small muted">Cash, current accounts and cards: what spending and saving change</div><div class="rows">${drRows(dr.ourRows)}</div></div>
+          <div class="drv ${dr.lead === 'market' ? 'lead' : ''}"><div class="k">Market movement · not controllable</div><div class="v ${cls(dr.market)}">${signed(dr.market)}</div><div class="small muted">${esc(dr.tag.name)} accounts: share and fund prices going up and down</div><div class="rows">${drRows(dr.marketRows)}</div></div>
+        </div>
+        ${Math.round(dr.paidIn) ? `<div class="note">${gbp(Math.abs(dr.paidIn))} ${dr.paidIn > 0 ? 'paid into' : 'taken out of'} investments ${dr.paidInEntered ? '(from the check-in)' : '(spotted as a transfer)'} counts as our money moving, so it's left out of market movement.</div>` : `<div class="note">If you paid money into investments this month, add it in the check-in ("Paid into investments") so it isn't mistaken for market growth.</div>`}
+      </section>`;
+
     const mv = M.moves(s);
     const trRows = mv.transfers.map(t => `<div class="row"><div><div class="name">Transfer</div><div class="meta">${esc(t.from.name)} → ${esc(t.to.name)}</div></div><div class="right"><div class="big muted">${gbp(t.amount)}</div><div class="chg muted">net £0</div></div></div>`).join('');
-    const moverRows = mv.rows.filter(r => Math.abs(r.net) >= 1).slice(0, 6).map(r => `<div class="row clickable" data-act="openAccount" data-id="${r.acc.id}"><div><div class="name">${esc(r.acc.name)}</div><div class="meta">${gbp(r.from)} → ${gbp(r.to)}${r.rest != null ? ` · after the ${gbp(Math.abs(r.d - r.rest))} transfer` : ''}</div></div><div class="right"><div class="big ${cls(r.net)}">${signed(r.net)}</div></div></div>`).join('');
+    const moverRows = mv.rows.filter(r => Math.abs(r.net) >= 1).slice(0, 6).map(r => `<div class="row clickable" data-act="openAccount" data-id="${r.acc.id}"><div><div class="name">${esc(r.acc.name)}${mtag && r.acc.tags.includes(mtag.id) ? ' <span class="mkt-badge">market</span>' : ''}</div><div class="meta">${gbp(r.from)} → ${gbp(r.to)}${r.rest != null ? ` · after the ${gbp(Math.abs(r.d - r.rest))} transfer` : ''}</div></div><div class="right"><div class="big ${cls(r.net)}">${signed(r.net)}</div></div></div>`).join('');
 
     return pageHead('Overview', `Balances as of ${l.snap && l.snap.date ? M.dateLbl(l.snap.date) : M.lbl(l.m, 'long')}`) + `
     <div class="grid">
@@ -380,6 +397,7 @@
         <button class="stat" data-act="tab" data-tab="planner"><div class="k">Months of cover</div><div class="v">${L.fmt.months(cov.months)}</div><div class="d">${cov.plan.year} plan, essentials</div></button>
         <button class="stat" data-act="expand" data-key="networth"><div class="k">Net worth</div><div class="v">${gbp(nw)}</div><div class="d">Incl. est. house + shares</div></button>
       </div>
+      ${driverCard}
       ${L.chartCard('composition', { cls: 's7' })}
       ${L.chartCard('change', { cls: 's5' })}
       <section class="card s6"><div class="card-head"><div><h2>Buckets</h2><div class="sub">Totals by tag, vs last check-in</div></div><div class="actions"><button class="btn sm" data-act="manageTags">Manage tags</button></div></div>
@@ -507,7 +525,7 @@
           <div class="prev">${pv != null ? M.lbl(prevSnap.month, 'mon') + ': ' + gbp(pv) : 'New'} <span class="dl" data-dl="${a.id}"></span></div>
           <div data-st="${a.id}">${b === 'asset' ? '' : updLbl(on, last && last.m < month ? last : null)}</div>
           ${!on && b !== 'asset' ? `<button class="same" data-same="${a.id}">Same as last month</button>` : ''}</div>
-        <input class="input num" inputmode="decimal" data-bal="${a.id}" data-bucket="${b}" data-prev="${pv == null ? '' : pv}" value="${inputNum(startVal(a.id))}" aria-label="${esc(a.name)} balance"></div>`;
+        <div class="num-wrap"><input class="input num" inputmode="decimal" data-bal="${a.id}" data-bucket="${b}" data-prev="${pv == null ? '' : pv}" value="${inputNum(startVal(a.id))}" aria-label="${esc(a.name)} balance">${signBtn}</div></div>`;
     };
     const section = (b, title) => { const list = accs.filter(a => a.bucket === b); return list.length ? `<div class="section"><h3>${title}</h3>${list.map(a => row(a, b)).join('')}</div>` : ''; };
     L.modal.open(() => ({
@@ -515,6 +533,9 @@
       body: `<div class="two"><div class="field"><label>Month</label><select class="input" id="log-month">${opts.join('')}</select></div>
           <div class="field"><label>Updated on</label><input class="input" type="date" id="log-date" value="${M.today()}"></div></div>
         ${section('savings', 'Savings')}${section('current', 'Current accounts')}${section('asset', 'Other assets (optional, estimates are fine)')}
+        ${M.marketTag(s) ? `<div class="section field"><label for="log-invested">Paid into investments this month (optional)</label>
+          <div class="num-wrap wide"><input class="input num" inputmode="decimal" id="log-invested" value="${existing && existing.invested != null ? inputNum(existing.invested) : ''}" placeholder="£">${signBtn}</div>
+          <div class="small muted">Money moved from your other accounts into ${esc(M.marketTag(s).name)} accounts. Use minus if you took money out. It stops a top-up looking like market growth in the summary. Leave blank to spot transfers automatically.</div></div>` : ''}
         <div class="section field"><label>Note for this month (optional)</label><input class="input" id="log-note" value="${esc((existing && existing.note) || '')}" placeholder="e.g. paid nursery deposit, moved £10k to HL"></div>`,
       foot: `<div class="log-totals"><div><div class="k">Savings</div><div class="v" id="lt-s">—</div></div><div><div class="k">Current</div><div class="v" id="lt-c">—</div></div><div><div class="k">Liquid</div><div class="v" id="lt-l">—</div></div></div>
         <button class="btn primary block" id="log-save">Save</button>`,
@@ -543,6 +564,7 @@
         recalc();
         foot.querySelector('#log-save').addEventListener('click', () => {
           const date = body.querySelector('#log-date').value || M.today(), note = body.querySelector('#log-note').value.trim();
+          const invBox = body.querySelector('#log-invested'), invested = invBox ? L.parseNum(invBox.value) : (existing && existing.invested != null ? existing.invested : null);
           const bal = {}; body.querySelectorAll('[data-bal]').forEach(i => { const v = L.parseNum(i.value); if (v != null) bal[i.dataset.bal] = v; });
           if (!Object.keys(bal).length){ L.toast('Enter at least one balance'); return; }
           L.commit(st => {
@@ -552,6 +574,7 @@
             touched.forEach(id => { updated[id] = date; });
             if (old && old.balances) Object.keys(old.balances).forEach(k => { if (bal[k] == null) bal[k] = old.balances[k]; });
             const snap = { month, date: Object.values(updated).sort().pop() || date, balances: bal, totals: null, updated, note };
+            if (invested != null) snap.invested = invested;
             if (i >= 0) st.snapshots[i] = snap; else st.snapshots.push(snap);
             st.snapshots.sort((a, b) => a.month < b.month ? -1 : 1);
           });
@@ -715,7 +738,7 @@
       ${o.month ? `<input class="input date" type="month" placeholder="YYYY-MM" value="${esc(it.month || '')}" data-edit="field" data-coll="${coll}" data-id="${it.id}" data-f="month">` : ''}
       <input class="input" value="${esc(it[o.f || 'label'] || '')}" placeholder="${o.ph || 'Description'}" data-edit="field" data-coll="${coll}" data-id="${it.id}" data-f="${o.f || 'label'}">
       ${o.type ? `<select class="input type" data-edit="field" data-coll="${coll}" data-id="${it.id}" data-f="type"><option value="oneoff" ${it.type !== 'monthly' ? 'selected' : ''}>One-off</option><option value="monthly" ${it.type === 'monthly' ? 'selected' : ''}>Monthly</option></select>` : ''}
-      <input class="input num" inputmode="decimal" value="${inputNum(it.amount)}" placeholder="± £" data-edit="field" data-coll="${coll}" data-id="${it.id}" data-f="amount" data-type="num">
+      <div class="num-wrap"><input class="input num" inputmode="decimal" value="${inputNum(it.amount)}" placeholder="± £" data-edit="field" data-coll="${coll}" data-id="${it.id}" data-f="amount" data-type="num">${signBtn}</div>
       <button class="x-btn" data-act="del" data-coll="${coll}" data-id="${it.id}" aria-label="Remove">×</button></div>`;
   };
   const houseAmt = (s, it) => it.link === 'furnishings' ? s.house.furnishings.reduce((t, x) => t + (Number(x.amount) || 0), 0) : (Number(it.amount) || 0);

@@ -202,6 +202,17 @@
     const el = ev.target.closest('[data-act]'); if (!el) return;
     const fn = L.acts[el.dataset.act]; if (fn){ ev.preventDefault(); fn(el, ev); }
   });
+  const keepFocus = ev => { if (ev.target.closest('[data-sign]')) ev.preventDefault(); };
+  document.addEventListener('pointerdown', keepFocus); document.addEventListener('mousedown', keepFocus);
+  document.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-sign]'); if (!b) return;
+    ev.preventDefault();
+    const i = b.parentElement.querySelector('input'); if (!i) return;
+    const v = i.value.trim();
+    i.value = /^[-−–]/.test(v) ? v.replace(/^[-−–]\s*/, '') : '-' + v;
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    if (i.dataset.edit && L.parseNum(i.value) != null) i.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   document.addEventListener('change', ev => {
     const el = ev.target.closest('[data-edit]'); if (!el) return;
     const fn = L.edits[el.dataset.edit]; if (fn) fn(el, ev);
@@ -321,6 +332,10 @@
           <div class="section"><h3>Planning year</h3>
             <div class="small muted" style="margin-bottom:8px">Drives months of cover, the plan line on Trends and the projection.</div>
             <select class="input" data-edit="field" data-coll="settings" data-f="planYear" data-type="num" data-refresh="1">${years}</select></div>
+          <div class="section"><h3>Market-linked accounts</h3>
+            <div class="small muted" style="margin-bottom:8px">Accounts with this tag hold shares or funds. Summaries show their swings as market movement, outside our control, separate from our own spending and saving.</div>
+            <select class="input" data-edit="field" data-coll="settings" data-f="marketTagId" data-refresh="1">${(() => { const auto = s.tags.find(t => /market/i.test(t.name)) || s.tags.find(t => /invest|stocks|shares|funds/i.test(t.name)), cur = s.settings.marketTagId || '';
+              return `<option value="" ${!cur ? 'selected' : ''}>Automatic${auto ? ' (' + esc(auto.name) + ')' : ' (no matching tag)'}</option>` + s.tags.map(t => `<option value="${t.id}" ${cur === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') + `<option value="none" ${cur === 'none' ? 'selected' : ''}>None: don't split</option>`; })()}</select></div>
           <div class="section"><h3>Your data</h3>
             <div class="small muted" style="margin-bottom:10px">${L.DEMO ? 'Demo: made-up data. Changes stay in this browser until you reset it, and never reach GitHub.' : L.PREVIEW ? 'Preview mode: changes stay in this browser only and never reach GitHub.' : 'Encrypted with your PIN and saved to <code>ledger.json</code> in the GitHub repo. Every save is a commit, so nothing is ever lost.'}
               ${s.meta.updatedAt ? '<br>Last change: ' + new Date(s.meta.updatedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : ''}${s.meta.importedFrom ? '<br>Imported from: ' + esc(s.meta.importedFrom) : ''}</div>
@@ -460,8 +475,24 @@
     }
   }
 
+  // PIN boxes: digits only, exactly six. Each box fills as you type; the sixth digit submits.
+  function pinBox(id, onFull){
+    const i = $(id), cells = [...i.parentElement.querySelectorAll('span')];
+    const paint = () => { const n = i.value.length, f = document.activeElement === i; cells.forEach((c, k) => { c.classList.toggle('on', k < n); c.classList.toggle('cur', f && k === Math.min(n, 5)); }); };
+    i.addEventListener('input', () => {
+      const v = i.value.replace(/\D/g, '').slice(0, 6); if (v !== i.value) i.value = v;
+      paint(); if (id === 'pin-input') $('pin-btn').disabled = v.length !== 6;
+      if (v.length === 6) onFull();
+    });
+    i.addEventListener('focus', paint); i.addEventListener('blur', paint);
+    i.parentElement.addEventListener('click', () => i.focus());
+    return { clear(){ i.value = ''; paint(); if (id === 'pin-input') $('pin-btn').disabled = true; i.focus(); } };
+  }
+  let pinUi = null, unlocking = false;
+
   async function unlock(){
-    const pin = $('pin-input').value.trim(); if (!pin) return;
+    const pin = $('pin-input').value.trim(); if (!/^\d{6}$/.test(pin) || unlocking) return;
+    unlocking = true;
     $('pin-error').textContent = ''; $('pin-btn').disabled = true; $('pin-btn').textContent = 'Unlocking…';
     try {
       const res = await L.store.unlock(pin);
@@ -474,10 +505,10 @@
       }
     } catch(e){
       if (e.name === 'GhAuthError'){ $('pin-error').innerHTML = 'GitHub rejected the token. <a href="#" data-act="changeToken">Use a different token</a>'; }
-      else if (e.name === 'OperationError'){ $('pin-error').textContent = 'That PIN didn\'t unlock the data.'; }
+      else if (e.name === 'OperationError'){ $('pin-error').textContent = 'That PIN didn\'t unlock the data. Try again.'; unlocking = false; $('pin-btn').textContent = 'Unlock'; pinUi.clear(); return; }
       else { $('pin-error').textContent = 'Couldn\'t reach GitHub — check your connection. (' + e.message + ')'; }
     }
-    $('pin-btn').disabled = false; $('pin-btn').textContent = 'Unlock';
+    unlocking = false; $('pin-btn').disabled = $('pin-input').value.length !== 6; $('pin-btn').textContent = 'Unlock';
   }
 
   L.boot = function(){
@@ -497,8 +528,10 @@
     const demoLogin = () => {
       const name = $('demo-user').value.trim().toLowerCase().replace(/\s+/g, ' ');
       if (name === 'test demo' && $('demo-pin').value.trim() === '123456') L.startDemo();
-      else $('demo-error').textContent = 'That name and PIN don\'t match the demo login.';
+      else { $('demo-error').textContent = 'That name and PIN don\'t match the demo login.'; demoPin.clear(); }
     };
+    const demoPin = pinBox('demo-pin', () => { if ($('demo-user').value.trim()) demoLogin(); });
+    pinUi = pinBox('pin-input', unlock);
     $('demo-btn').addEventListener('click', demoLogin);
     ['demo-user', 'demo-pin'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') demoLogin(); }));
     $('pat-btn').addEventListener('click', () => {

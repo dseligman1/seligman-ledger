@@ -64,3 +64,35 @@ test('negative balances, zero planned costs and future check-ins are handled', (
   const r=R.build(s,'2026-11'); assert.equal(r.cover,null); assert.equal(r.liquid,-2000); assert.match(r.headline,/drawing/);
   assert.equal(R.build(s,'2026-12'),null);
 });
+const marketFixture = () => {
+  const s = fixture();
+  s.tags = [{ id:'t-m', name:'Market-linked' }];
+  s.accounts.push({ id:'isa', bucket:'savings', tags:['t-m'] });
+  s.snapshots[1].balances.isa = 50000;
+  s.snapshots[2].balances.isa = 46000; s.snapshots[2].updated.isa = '2026-11-04';
+  return s;
+};
+test('drivers split our money from market movement and lead with the bigger one', () => {
+  const r = R.build(marketFixture(), '2026-11');
+  assert.equal(r.delta, 1200 - 4000);
+  assert.equal(r.drivers.ours, 1200); assert.equal(r.drivers.market, -4000); assert.equal(r.drivers.lead, 'market');
+  assert.equal(r.oursGap, 200); assert.match(r.headline, /Markets pulled/);
+  assert.match(r.bullets[1], /Markets drove it: investments down £4,000.*outside our control.*our day-to-day money up £1,200/);
+  assert.match(r.bullets[2], /Leaving out market moves, £200 ahead of the October plan/);
+  assert.equal(r.trend.at(-1).ours, 1200);
+});
+test('money paid into investments is ours moving, not market growth', () => {
+  const s = marketFixture(); s.snapshots[2].balances.cash = -7800; s.snapshots[2].balances.isa = 60300; // £10k moved, +£300 growth
+  let r = R.build(s, '2026-11');
+  assert.equal(r.drivers.paidIn, 10000, 'cash −£10k and investments +£10.3k pair as a transfer');
+  assert.equal(r.drivers.market, 300); assert.equal(r.drivers.ours, 1000);
+  s.snapshots[2].balances.isa = 66000; r = R.build(s, '2026-11');
+  assert.equal(r.drivers.paidIn, 0, 'too far apart to call it a transfer without a check-in figure');
+  s.snapshots[2].balances.isa = 62000; s.snapshots[2].invested = 10000; r = R.build(s, '2026-11');
+  assert.equal(r.drivers.market, 2000); assert.equal(r.drivers.ours, 1000); assert.equal(r.drivers.paidInEntered, true);
+});
+test('no market tag means no split and the old plan wording', () => {
+  const r = R.build(fixture(), '2026-11');
+  assert.equal(r.drivers, null); assert.match(r.bullets[1], /plan for balance growth/);
+  const s = marketFixture(); s.settings.marketTagId = 'none'; assert.equal(R.build(s, '2026-11').drivers, null);
+});

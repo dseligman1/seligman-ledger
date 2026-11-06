@@ -33,6 +33,13 @@ around **monthly snapshots**:
 
 ## Architecture
 
+### v2.8 (2026-11-06): ± button, 6-digit PIN boxes, what drove the change
+
+- **± button** (`.sign-btn`, `data-sign`) next to check-in balances, "Paid into investments" and scenario/one-off amounts, because the iPhone decimal keypad has no minus key. One delegated handler in `app.js` flips the sign, fires `input` (and `change` for `data-edit` fields), and stops the tap stealing focus so the keyboard stays open.
+- **PIN**: six boxes over one transparent real input (keeps keyboards and password managers working). Digits only, max 6, Unlock disabled until 6, the sixth digit submits; a wrong PIN clears the boxes. Same on the demo login (auto-submits only once a name is entered). **Assumes the PIN is exactly 6 digits.**
+- **What drove the change**: `M.marketTag` (Settings → Market-linked accounts; automatic = tag named market/invest…), `M.drivers(s, a, b)` splits the liquid change into *ours* (everything not market-linked: cash, current, cards) and *market* (market-linked change less money paid in). Money paid in comes from the optional check-in field `snapshots[].invested` (+ in, − out); if blank, a transfer between the two sides within 5% is netted automatically. Overview has a "What drove the change" card and "market" badges in What moved. Monthly review: `drivers`, `oursGap` and `trend[].ours`; driver bullet, plan comparison excludes markets, market-led months get a market headline; the image gains a panel (H 1740 → 2080) and the plan chart bars use change excl. markets.
+- Verified: `node --test tests/monthly-report.test.cjs` (11, incl. 3 new driver tests); `tests/report-browser.cjs` passes; Playwright demo screenshots at 390px (PIN filter/auto-submit, ± keeps focus, drivers card). Not yet tried on a real iPhone.
+
 ### Monthly reviews (v2.7, 2026-10-30)
 
 - Complete every non-asset account confirmation plus the change, one-offs and budget checklist activities: the previous month's review is created automatically and opens after the last activity. A manual balance tick cannot bypass unconfirmed accounts. November check-in → October review, using October → November balance snapshots and October's plan. Dates and the approximation are explicit on the export.

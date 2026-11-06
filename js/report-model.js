@@ -30,14 +30,23 @@
     for (let i = 5; i >= 0; i--){
       const m = M.addM(cm, -i), p = tl.find(x => x.m === m), before = tl.find(x => x.m === M.addM(m, -1));
       const actual = p && p.snap && before && before.snap ? p.liquid - before.liquid : null;
-      trend.push({ checkMonth: m, month: M.addM(m, -1), liquid: p && p.snap ? p.liquid : null, actual, plan: M.planMonth(asof, M.addM(m, -1)).net });
+      const dm = actual == null ? null : M.drivers(asof, before.snap, p.snap);
+      trend.push({ checkMonth: m, month: M.addM(m, -1), liquid: p && p.snap ? p.liquid : null, actual, ours: dm ? dm.ours : null, plan: M.planMonth(asof, M.addM(m, -1)).net });
     }
+    // What drove the change: our own money versus market prices on investments.
+    const dr = comparable ? M.drivers(asof, prev.snap, end.snap) : null;
+    const oursGap = dr ? dr.ours - plan.net : null;
+    const top = list => list.slice(0, 3).map(r => ({ name: String(r.acc.name || 'Account'), d: r.d }));
+    const drivers = dr ? { tag: dr.tag.name, ours: dr.ours, market: dr.market, paidIn: dr.paidIn, paidInEntered: dr.paidInEntered, lead: dr.lead, ourTop: top(dr.ourRows), marketTop: top(dr.marketRows) } : null;
     const bullets = [];
     let headline = 'A fresh view of the family finances';
     if (delta != null){
       headline = Math.round(delta) > 0 ? 'A stronger position this month' : Math.round(delta) < 0 ? 'A month of drawing on our funds' : 'Holding steady this month';
+      if (dr && dr.lead === 'market' && Math.round(delta) !== 0) headline = Math.round(delta) > 0 ? 'Markets lifted our funds this month' : 'Markets pulled our funds down this month';
       bullets.push(`Liquid funds ${Math.round(delta) >= 0 ? 'rose' : 'fell'} ${money(Math.abs(delta))} between check-ins.`);
-      bullets.push(`${money(Math.abs(gap))} ${Math.round(gap) >= 0 ? 'ahead of' : 'behind'} the ${M.lbl(month, 'month')} plan for balance growth.`);
+      if (dr) bullets.push(M.driverLine(dr, money));
+      bullets.push(dr ? `Leaving out market moves, ${money(Math.abs(oursGap))} ${Math.round(oursGap) >= 0 ? 'ahead of' : 'behind'} the ${M.lbl(month, 'month')} plan.`
+        : `${money(Math.abs(gap))} ${Math.round(gap) >= 0 ? 'ahead of' : 'behind'} the ${M.lbl(month, 'month')} plan for balance growth.`);
     } else {
       bullets.push(`Liquid funds stand at ${money(end.liquid)}.`);
       bullets.push('No previous-month snapshot: monthly change is not yet available.');
@@ -53,7 +62,7 @@
       confirmedFrom: dates[0] || end.snap.date, confirmedTo: dates[dates.length - 1] || end.snap.date,
       liquid: end.liquid, savings: end.savings, current: end.current,
       netWorth: end.netWorth, hasAssets: Object.keys(end.assetsBy).length > 0,
-      delta, plan: plan.net, gap, cover: cover.months, coverYear: cover.plan.year,
+      delta, plan: plan.net, gap, oursGap, drivers, cover: cover.months, coverYear: cover.plan.year,
       trend, upcoming: upcoming.slice(0, 3), upcomingCount: upcoming.length,
       nextPlan: M.planMonth(asof, cm).net,
       summary: `${M.lbl(month, 'long')} - ${headline}\n${bullets.map(x => '• ' + x).join('\n')}`,

@@ -536,3 +536,33 @@ button.chip.on { border-color: var(--accent); color: var(--ink); background: var
 .report-details{margin-top:16px;font-size:14px;line-height:1.6}
 .report-details summary{cursor:pointer}
 @media(max-width:560px){.report-ready,.report-toolbar{align-items:stretch;flex-direction:column}.report-toolbar .field{max-width:none}.report-actions .btn{flex-basis:40%}}
+
+/* v2.8: ± button for amounts (iPhone number keypads have no minus key) */
+.num-wrap { display: flex; gap: 6px; align-items: stretch; min-width: 0; }
+.num-wrap .input { flex: 1; min-width: 0; }
+.num-wrap.wide { max-width: 260px; }
+.sign-btn { flex: none; min-width: 44px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); font: 600 14px/1 inherit; cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+.sign-btn:hover, .sign-btn:active { border-color: var(--accent); color: var(--accent); }
+.log-row { grid-template-columns: minmax(0, 1fr) 176px; }
+
+/* v2.8: six PIN boxes. A real (transparent) input sits on top so keyboards and password managers work. */
+.pin-boxes { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; cursor: text; }
+.pin-boxes span { height: 52px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--surface-2); position: relative; transition: border-color .15s; }
+.pin-boxes span.on::after { content: ""; position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--ink); }
+.pin-boxes span.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pin-boxes input { position: absolute; inset: 0; width: 100%; height: 100%; color: transparent; caret-color: transparent; background: transparent; border: 0; outline: 0; font-size: 16px; letter-spacing: 2em; text-indent: -999px; }
+
+/* v2.8: what drove the change */
+.drv-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.drv { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); min-width: 0; }
+.drv.lead { border-color: var(--accent); }
+.drv .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.drv .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.drv .rows { margin-top: 8px; }
+.drivers .note { margin-top: 12px; }
+.mkt-badge { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 6px; margin-left: 4px; vertical-align: 1px; }
+@media (max-width: 640px) {
+  .drv-split { grid-template-columns: 1fr; }
+  .log-row { grid-template-columns: minmax(0, 1fr) 156px; }
+  .pin-boxes span { height: 48px; }
+}
