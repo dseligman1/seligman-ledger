@@ -81,15 +81,51 @@ test('drivers split our money from market movement and lead with the bigger one'
   assert.match(r.bullets[2], /Leaving out market moves, £200 ahead of the October plan/);
   assert.equal(r.trend.at(-1).ours, 1200);
 });
-test('money paid into investments is ours moving, not market growth', () => {
-  const s = marketFixture(); s.snapshots[2].balances.cash = -7800; s.snapshots[2].balances.isa = 60300; // £10k moved, +£300 growth
-  let r = R.build(s, '2026-11');
-  assert.equal(r.drivers.paidIn, 10000, 'cash −£10k and investments +£10.3k pair as a transfer');
-  assert.equal(r.drivers.market, 300); assert.equal(r.drivers.ours, 1000);
-  s.snapshots[2].balances.isa = 66000; r = R.build(s, '2026-11');
-  assert.equal(r.drivers.paidIn, 0, 'too far apart to call it a transfer without a check-in figure');
-  s.snapshots[2].balances.isa = 62000; s.snapshots[2].invested = 10000; r = R.build(s, '2026-11');
-  assert.equal(r.drivers.market, 2000); assert.equal(r.drivers.ours, 1000); assert.equal(r.drivers.paidInEntered, true);
+test('legacy v2.8 "paid into investments" figure still counts', () => {
+  const s = marketFixture(); s.snapshots[2].balances.cash = -7800; s.snapshots[2].balances.isa = 62000; s.snapshots[2].invested = 10000;
+  const r = R.build(s, '2026-11');
+  assert.equal(r.drivers.market, 2000); assert.equal(r.drivers.ours, 1000); assert.equal(r.drivers.source, 'invested');
+});
+// Market-linked HL-style account (50k), a cash ISA, current account. Balances Oct -> Nov.
+const shuffle = (isaEnd, extra = {}) => {
+  const s = marketFixture();
+  s.accounts.push({ id:'cisa', name:'Cash ISA', bucket:'savings', tags:[] }, { id:'cisa2', name:'Cash ISA 2', bucket:'savings', tags:[] });
+  s.accounts.find(a => a.id === 'isa').name = 'HL';
+  s.snapshots[1].balances.cisa = 1000; s.snapshots[1].balances.cisa2 = 1000;
+  Object.assign(s.snapshots[2].balances, { cash:2200, save:11000, isa:isaEnd, cisa:1000, cisa2:1000 }, extra);
+  Object.assign(s.snapshots[2].updated, { isa:'2026-11-04', cisa:'2026-11-04', cisa2:'2026-11-04' });
+  return s;
+};
+test('money moved out of investments into a cash ISA is a shuffle, even with prices moving too', () => {
+  const s = shuffle(32000, { cisa: 21000 }); // HL: -20k out, +2k prices. Cash ISA +20k.
+  const dr = M.drivers(s, s.snapshots[1], s.snapshots[2]);
+  assert.equal(dr.transfers.length, 1); assert.equal(dr.transfers[0].amount, 20000);
+  assert.equal(dr.market, 2000); assert.equal(dr.ours, 0); assert.equal(dr.total, 2000);
+  const G = Object.fromEntries(dr.groups.map(g => [g.id, g]));
+  assert.equal(G.market.change, -18000); assert.equal(G.market.moved, -20000); assert.equal(G.savings.moved, 20000);
+  assert.equal(dr.groups.reduce((t, g) => t + g.moved, 0), 0, 'moves net to zero across groups');
+  const r = R.build(s, '2026-11'); assert.match(r.drivers.movedLine, /£20,000 moved out of investments.*not a market loss/);
+});
+test('one account split across two is spotted', () => {
+  const s = shuffle(20000, { cisa: 16000, cisa2: 16000 }); // HL -30k into two ISAs of +15k
+  const dr = M.drivers(s, s.snapshots[1], s.snapshots[2]);
+  assert.equal(dr.transfers.length, 2); assert.equal(Math.round(dr.market), 0); assert.equal(Math.round(dr.ours), 0);
+});
+test('a normal month of saving while markets dip is not mistaken for a move', () => {
+  const s = shuffle(47000, { cisa: 3500, cash: -300 }); // HL -3k on prices; 2.5k saved into the ISA from the current account
+  const dr = M.drivers(s, s.snapshots[1], s.snapshots[2]);
+  assert.equal(dr.transfers.some(t => t.from === 'isa'), false);
+  assert.equal(dr.market, -3000);
+});
+test('moves recorded at check-in are used exactly, and big unexplained opposite swings are flagged', () => {
+  let s = shuffle(35000, { cisa: 11000 }); // HL -15k, ISA +10k: too far apart to match automatically
+  let dr = M.drivers(s, s.snapshots[1], s.snapshots[2]);
+  assert.equal(dr.transfers.length, 0); assert.ok(dr.check, 'flags it for checking'); assert.equal(dr.market, -15000);
+  assert.match(M.movedLine(dr, n => '£' + n), /record it at check-in/);
+  s.snapshots[2].transfers = [{ from:'isa', to:'cisa', amount:10000 }, { from:'isa', to:'cash', amount:4000 }];
+  dr = M.drivers(s, s.snapshots[1], s.snapshots[2]);
+  assert.equal(dr.source, 'checkin'); assert.equal(dr.check, null);
+  assert.equal(dr.market, -1000); assert.equal(dr.ours, -4000, '£4k arrived in the current account and was spent');
 });
 test('no market tag means no split and the old plan wording', () => {
   const r = R.build(fixture(), '2026-11');

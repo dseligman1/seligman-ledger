@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   const L = window.Ledger, M = L.model, RM = L.reportModel, esc = L.charts.esc;
-  const R = L.reports = {}, W = 1080, H = 2080;
+  const R = L.reports = {}, W = 1080, H = 2205;
   const P = { paper:'#F6F3EB', ink:'#20251F', muted:'#647064', rule:'#D8DED2', dark:'#1B271F', yellow:'#E8B83A', blue:'#246DAC', red:'#B84736', green:'#286B4B', white:'#FFFFFF' };
   const gbp = n => n == null ? 'Not available' : (n < 0 ? '-' : '') + '£' + Math.abs(Math.round(n)).toLocaleString('en-GB');
   const signed = n => n == null ? 'Not available' : (Math.round(n) > 0 ? '+' : '') + gbp(n);
@@ -43,25 +43,33 @@
     metric('Net worth', gbp(report.netWorth), report.hasAssets ? 'Includes last recorded asset estimates' : 'No other assets recorded', 556, 680);
     line(64, 805, 1016, 805);
 
-    // What drove the change: our own money (controllable) versus market prices (not controllable).
+    // What drove the change: every group in full (change = moved between our accounts + real change),
+    // then the controllable part alone. Market-linked real change is price movement, outside our control.
     const dv = report.drivers;
     text('What drove the change', 64, 834, 34, P.ink, '700');
     text(dv ? (dv.lead === 'market' ? 'Mostly market prices this month, not our spending' : 'Mostly our own spending and saving this month') : 'Split between what we control and what markets did', 64, 879, 24, P.muted);
-    const lead = list => list && list.length ? 'Biggest: ' + list.slice(0, 2).map(r => `${r.name} ${signed(r.d)}`).join(', ') : 'No accounts moved';
-    [[64, 'WITHIN OUR CONTROL', 'Cash, current accounts, cards', dv && dv.ours, dv && dv.ourTop, dv && dv.lead === 'ours'],
-     [548, 'MARKET MOVEMENT', `Not controllable: ${dv ? dv.tag : 'investment'} prices`, dv && dv.market, dv && dv.marketTop, dv && dv.lead === 'market']].forEach(([x, k, sub, v, list, isLead]) => {
-      rect(x, 920, 468, 168, isLead ? '#E3E6D6' : '#EEEFE6', 14);
-      if (isLead) rect(x, 920, 8, 168, P.yellow, 4);
-      text(k, x + 26, 940, 20, P.muted, '700'); text(sub, x + 26, 966, 20, P.muted);
-      text(dv ? signed(v) : 'Not available', x + 26, 998, 42, !dv || !Math.round(v) ? P.muted : Math.round(v) < 0 ? P.red : P.green, '700');
-      if (dv) wrap(lead(list), x + 26, 1050, 420, 20, P.muted, 1);
-    });
-    const dnote = !dv ? 'Tag investment accounts "Market-linked" and log two check-ins to see this split.'
-      : dv.paidIn && Math.round(dv.paidIn) ? `${gbp(Math.abs(dv.paidIn))} ${dv.paidIn > 0 ? 'paid into' : 'taken out of'} investments counts as our money moving, not market growth.`
-      : 'Market movement = change in market-linked accounts, less any money we paid in.';
-    wrap(dnote, 64, 1104, 952, 21, P.muted, 1);
-    line(64, 1145, 1016, 1145);
-    c.translate(0, 340);
+    if (dv){
+      const cols = [[640, 'CHANGE', 'change'], [835, 'MOVED BETWEEN', 'moved'], [1016, 'REAL CHANGE', 'real']];
+      cols.forEach(([x, h]) => text(h, x, 926, 18, P.muted, '700', 'right'));
+      const row = (y, name, sub, g, opts = {}) => {
+        if (opts.band) rect(56, y - 12, 968, 50, '#E3E6D6', 10);
+        text(name, 64, y, 26, P.ink, opts.bold ? '700' : '400');
+        if (sub){ c.font = `${opts.bold ? '700' : '400'} 26px Arial`; text(sub, 64 + c.measureText(name).width + 10, y + 4, 19, P.muted, '700'); }
+        cols.forEach(([x, , k]) => { const v = g[k]; text(Math.round(v) ? signed(v) : '–', x, y, 26, k === 'real' && Math.round(v) ? (v < 0 ? P.red : P.green) : Math.round(v) ? P.ink : P.muted, opts.bold || k === 'real' ? '700' : '400', 'right'); });
+      };
+      const G = Object.fromEntries(dv.groups.map(g => [g.id, g]));
+      row(960, G.market.name, 'NOT CONTROLLABLE', G.market);
+      row(1002, G.savings.name, '', G.savings);
+      row(1044, G.current.name, '', G.current);
+      line(64, 1084, 1016, 1084);
+      row(1096, 'Total liquid funds', '', { change: dv.total, moved: 0, real: dv.total }, { bold: true });
+      row(1146, 'Within our control', '', { change: G.savings.change + G.current.change, moved: G.savings.moved + G.current.moved, real: dv.ours }, { bold: true, band: true });
+    } else wrap('Tag investment accounts "Market-linked" and log two check-ins to see this split.', 64, 960, 952, 24, P.muted, 2);
+    const tlist = dv && dv.transfers.length ? 'Moved between accounts: ' + dv.transfers.slice(0, 3).map(m => `${m.from} → ${m.to} ${gbp(m.amount)}`).join('; ') + (dv.transferCount > 3 ? ` + ${dv.transferCount - 3} more` : '') + '.' : '';
+    const dnote = !dv ? '' : [dv.movedLine, tlist].filter(Boolean).join(' ') || 'Real change = change less money moved between our own accounts. Market-linked real change is price movement.';
+    wrap(dnote, 64, 1200, 952, 21, P.muted, 2);
+    line(64, 1270, 1016, 1270);
+    c.translate(0, 465);
 
     text('The balance over time', 64, 834, 34, P.ink, '700');
     text('Liquid funds at each check-in', 64, 879, 24, P.muted);

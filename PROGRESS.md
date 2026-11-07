@@ -33,6 +33,16 @@ around **monthly snapshots**:
 
 ## Architecture
 
+### v2.9 (2026-11-07): moves between accounts, full + controllable tables
+
+Why: v2.8 only netted 1-to-1 transfers within 5%, so money moved out of a market-linked account (whose balance also moved with prices) into a cash ISA read as a market loss.
+- `M.detectTransfers(s, a, b)`: 1→1, 1→2-3 and 2-3→1 matches within 5%; market-linked accounts get extra slack of 3% of their balance, but only for moves ≥ max(£2k, 2× slack) so a normal month of saving during a dip isn't mistaken for a move. Market-side amounts take the exact non-market figure.
+- `M.transfers`: `snapshots[].transfers` [{from, to, amount}] recorded at check-in wins; else spotted; v2.8 `invested` still honoured as a group-level move. `M.moves` (What moved) uses the same transfers.
+- `M.drivers` now returns `groups` (Market-linked / Other savings / Current accounts and cards: change = moved + real), per-account rows, transfers, `intoMarket` and `check` (market and other money went opposite ways by ≥ max(£2k, 2% of market) with no recorded move → "Check this" prompt). Market = market group real change; ours = total − market.
+- Check-in: "Money moved between our accounts" list, pre-filled with spotted moves that refresh as balances are typed; editing/removing/adding switches to a recorded list saved on the snapshot ("Use spotted moves instead" reverts). Replaces the v2.8 single box.
+- Overview card: "Everything" table + "Just what we control" table + moves list + Every account. Review image panel is the same table (H 2205); extra bullet for moves into/out of investments.
+- Verified: 15 node tests (shuffle with price noise, 1→2 split, saving-during-dip guard, recorded moves, flag, legacy figure); report-browser test passes; Playwright demo at 390/1280px incl. editing moves at check-in.
+
 ### v2.8 (2026-11-06): ± button, 6-digit PIN boxes, what drove the change
 
 - **± button** (`.sign-btn`, `data-sign`) next to check-in balances, "Paid into investments" and scenario/one-off amounts, because the iPhone decimal keypad has no minus key. One delegated handler in `app.js` flips the sign, fires `input` (and `change` for `data-edit` fields), and stops the tap stealing focus so the keyboard stays open.

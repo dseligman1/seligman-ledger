@@ -36,8 +36,11 @@
     // What drove the change: our own money versus market prices on investments.
     const dr = comparable ? M.drivers(asof, prev.snap, end.snap) : null;
     const oursGap = dr ? dr.ours - plan.net : null;
-    const top = list => list.slice(0, 3).map(r => ({ name: String(r.acc.name || 'Account'), d: r.d }));
-    const drivers = dr ? { tag: dr.tag.name, ours: dr.ours, market: dr.market, paidIn: dr.paidIn, paidInEntered: dr.paidInEntered, lead: dr.lead, ourTop: top(dr.ourRows), marketTop: top(dr.marketRows) } : null;
+    const drivers = dr ? { tag: dr.tag.name, total: dr.total, ours: dr.ours, market: dr.market, intoMarket: dr.intoMarket, source: dr.source, lead: dr.lead,
+      groups: dr.groups.map(g => ({ id: g.id, name: g.name, controllable: g.controllable, change: g.change, moved: g.moved, real: g.real })),
+      transfers: dr.transfers.slice(0, 4).map(m => ({ from: String(m.fromAcc.name || 'Account'), to: String(m.toAcc.name || 'Account'), amount: m.amount })), transferCount: dr.transfers.length,
+      check: dr.check ? { market: dr.check.market, other: dr.check.other } : null, movedLine: M.movedLine(dr, money),
+      ourTop: dr.ourRows.slice(0, 3).map(r => ({ name: String(r.acc.name || 'Account'), d: r.real })), marketTop: dr.marketRows.slice(0, 3).map(r => ({ name: String(r.acc.name || 'Account'), d: r.real })) } : null;
     const bullets = [];
     let headline = 'A fresh view of the family finances';
     if (delta != null){
@@ -45,6 +48,7 @@
       if (dr && dr.lead === 'market' && Math.round(delta) !== 0) headline = Math.round(delta) > 0 ? 'Markets lifted our funds this month' : 'Markets pulled our funds down this month';
       bullets.push(`Liquid funds ${Math.round(delta) >= 0 ? 'rose' : 'fell'} ${money(Math.abs(delta))} between check-ins.`);
       if (dr) bullets.push(M.driverLine(dr, money));
+      if (dr && drivers.movedLine) bullets.push(drivers.movedLine);
       bullets.push(dr ? `Leaving out market moves, ${money(Math.abs(oursGap))} ${Math.round(oursGap) >= 0 ? 'ahead of' : 'behind'} the ${M.lbl(month, 'month')} plan.`
         : `${money(Math.abs(gap))} ${Math.round(gap) >= 0 ? 'ahead of' : 'behind'} the ${M.lbl(month, 'month')} plan for balance growth.`);
     } else {

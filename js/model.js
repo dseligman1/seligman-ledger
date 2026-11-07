@@ -134,16 +134,10 @@
   M.moves = s => memo('moves', () => {
     const d = M.detailSnaps(s); if (d.length < 2) return { rows: [], transfers: [], from: null, to: null };
     const a = d[d.length - 2], b = d[d.length - 1];
+    // same transfers as the summaries: confirmed at check-in, or spotted automatically
+    const transfers = M.transfers(s, a, b).list.filter(t => t.from != null).map(t => ({ from: M.acc(s, t.from), to: M.acc(s, t.to), amount: t.amount }));
     let rows = s.accounts.filter(x => x.bucket !== 'asset').map(x => ({ acc: x, from: a.balances[x.id] ?? 0, to: b.balances[x.id] ?? 0 })).map(r => ({ ...r, d: r.to - r.from })).filter(r => Math.abs(r.d) >= 1);
-    // pair an outflow with an inflow of about the same size (within 5%) as a transfer between your own accounts
-    const transfers = [], used = new Set();
-    const big = rows.filter(r => Math.abs(r.d) >= 500).sort((p, q) => Math.abs(q.d) - Math.abs(p.d));
-    big.forEach(out => {
-      if (out.d >= 0 || used.has(out.acc.id)) return;
-      const match = big.find(inn => inn.d > 0 && !used.has(inn.acc.id) && Math.abs(inn.d + out.d) <= 0.05 * Math.max(inn.d, -out.d));
-      if (match){ const amt = Math.min(match.d, -out.d); transfers.push({ from: out.acc, to: match.acc, amount: amt }); used.add(out.acc.id); used.add(match.acc.id); out.rest = out.d + amt; match.rest = match.d - amt; }
-    });
-    rows.forEach(r => { r.net = r.rest != null ? r.rest : r.d; });
+    rows.forEach(r => { const mv = transfers.reduce((t, x) => t + (x.to.id === r.acc.id ? x.amount : 0) - (x.from.id === r.acc.id ? x.amount : 0), 0); if (Math.abs(mv) >= 1) r.rest = r.d - mv; r.net = r.rest != null ? r.rest : r.d; });
     rows = rows.sort((p, q) => Math.abs(q.net) - Math.abs(p.net));
     return { rows, transfers, from: a.month, to: b.month };
   });
@@ -163,31 +157,104 @@
     if (id && M.tag(s, id)) return M.tag(s, id);
     return s.tags.find(t => /market/i.test(t.name)) || s.tags.find(t => /invest|stocks|shares|funds/i.test(t.name)) || null;
   };
-  // Splits the liquid change between two detailed snapshots into "ours" (cash, current accounts, cards:
-  // what spending and saving control) and "market" (price movement in market-linked accounts).
-  // Money paid into investments is ours moving, not market growth: it comes from b.invested when entered at
-  // check-in (+ paid in, − taken out), otherwise from transfers spotted between the two sides (within 5%).
+  const isMarket = (s, acc) => { const t = M.marketTag(s); return !!(t && acc && acc.tags.includes(t.id)); };
+  // Summary groups. Market-linked is its own group whatever the bucket; the rest split by bucket.
+  M.GROUPS = [{ id: 'market', controllable: false }, { id: 'savings', name: 'Other savings', controllable: true }, { id: 'current', name: 'Current accounts and cards', controllable: true }];
+  M.groupOf = (s, acc) => isMarket(s, acc) ? 'market' : acc.bucket === 'savings' ? 'savings' : 'current';
+
+  // Spots money moved between our own accounts from the balance changes alone:
+  // (1) one account to one account, (2) one account split across 2-3, (3) 2-3 accounts into one.
+  // Amounts must agree within 5%. A market-linked account also moved with prices, so it gets extra slack
+  // (3% of its balance) but only for moves big enough (at least £2,000 and twice that slack) that a normal
+  // month of saving can't be mistaken for one. Returns [{ from, to, amount }] with account ids.
+  M.detectTransfers = (s, a, b) => {
+    if (!a || !b || !a.balances || !b.balances) return [];
+    const rows = s.accounts.filter(x => x.bucket !== 'asset' && (a.balances[x.id] != null || b.balances[x.id] != null))
+      .map(x => ({ id: x.id, mkt: isMarket(s, x), start: Math.abs(a.balances[x.id] ?? 0), d: (b.balances[x.id] ?? 0) - (a.balances[x.id] ?? 0) }))
+      .filter(r => Math.abs(r.d) >= 500);
+    const rem = {}; rows.forEach(r => rem[r.id] = Math.abs(r.d));
+    const noise = r => r.mkt ? 0.03 * r.start : 0;
+    const out = [];
+    const fits = (one, many) => {
+      const total = many.reduce((t, r) => t + rem[r.id], 0), slack = noise(one) + many.reduce((t, r) => t + noise(r), 0);
+      if (Math.abs(rem[one.id] - total) > 0.05 * Math.max(rem[one.id], total) + slack) return null;
+      if (slack && Math.min(rem[one.id], total) < Math.max(2000, 2 * slack)) return null;
+      return Math.abs(rem[one.id] - total);
+    };
+    // amount each side moved: a non-market account's change is exact, a market one's includes prices
+    const take = (one, many, oneIsFrom) => {
+      const total = many.reduce((t, r) => t + rem[r.id], 0);
+      many.forEach(r => {
+        const amt = many.length === 1 ? (one.mkt && !r.mkt ? rem[r.id] : !one.mkt && r.mkt ? rem[one.id] : Math.min(rem[one.id], rem[r.id])) : rem[r.id] * (one.mkt ? 1 : Math.min(1, rem[one.id] / total));
+        out.push(oneIsFrom ? { from: one.id, to: r.id, amount: Math.round(amt * 100) / 100 } : { from: r.id, to: one.id, amount: Math.round(amt * 100) / 100 });
+        rem[r.id] = 0;
+      });
+      rem[one.id] = 0;
+    };
+    const combos = (list, k) => k === 1 ? list.map(x => [x]) : list.flatMap((x, i) => combos(list.slice(i + 1), k - 1).map(c => [x, ...c]));
+    const big = list => list.filter(r => rem[r.id] > 0).sort((p, q) => rem[q.id] - rem[p.id]);
+    for (const k of [1, 2, 3]){
+      for (const [side, other, oneIsFrom] of [[r => r.d < 0, r => r.d > 0, true], [r => r.d > 0, r => r.d < 0, false]]){
+        if (k === 1 && !oneIsFrom) continue; // one-to-one already covered from the outflow side
+        big(rows.filter(side)).forEach(one => {
+          if (!rem[one.id]) return;
+          const cands = big(rows.filter(other)).filter(r => r.id !== one.id).slice(0, 8);
+          let best = null;
+          combos(cands, k).forEach(c => { const f = fits(one, c); if (f != null && (!best || f < best.f)) best = { c, f }; });
+          if (best) take(one, best.c, oneIsFrom);
+        });
+      }
+    }
+    return out;
+  };
+  // Transfers for a month: the list confirmed at check-in (snapshot.transfers) if there is one, else spotted
+  // automatically. A v2.8 "paid into investments" figure (snapshot.invested) still counts, as a group-level move.
+  M.transfers = (s, a, b) => {
+    if (!b) return { list: [], source: 'none' };
+    if (Array.isArray(b.transfers)) return { list: b.transfers.filter(t => t && t.from !== t.to && Number(t.amount) > 0 && M.acc(s, t.from) && M.acc(s, t.to)).map(t => ({ from: t.from, to: t.to, amount: Number(t.amount) })), source: 'checkin' };
+    let list = M.detectTransfers(s, a, b), source = 'auto';
+    const inv = b.invested != null && b.invested !== '' && !isNaN(Number(b.invested)) ? Number(b.invested) : null;
+    if (inv != null){
+      list = list.filter(t => isMarket(s, M.acc(s, t.from)) === isMarket(s, M.acc(s, t.to)));
+      if (Math.round(inv)) list.push({ from: null, to: null, amount: Math.abs(inv), legacyInto: inv > 0 }); source = 'invested';
+    }
+    return { list, source };
+  };
+
+  // Splits the liquid change between two detailed snapshots. For every account and group:
+  // change = moved (net money in from our other accounts) + real (what actually grew or shrank).
+  // Market-linked "real" = price movement (not controllable). Everything else = ours (controllable).
   M.drivers = (s, a, b) => {
     if (!a || !b || !a.balances || !b.balances || a.totals || b.totals) return null;
     const tag = M.marketTag(s); if (!tag) return null;
-    const rows = s.accounts.filter(x => x.bucket !== 'asset' && (a.balances[x.id] != null || b.balances[x.id] != null))
-      .map(x => ({ acc: x, market: x.tags.includes(tag.id), d: (b.balances[x.id] ?? 0) - (a.balances[x.id] ?? 0) }))
-      .filter(r => Math.abs(r.d) >= 1).sort((p, q) => Math.abs(q.d) - Math.abs(p.d));
-    const entered = b.invested != null && b.invested !== '' && !isNaN(Number(b.invested));
-    let paidIn = entered ? Number(b.invested) : 0;
-    if (!entered){
-      const used = new Set(), big = rows.filter(r => Math.abs(r.d) >= 500);
-      big.forEach(out => {
-        if (out.d >= 0 || used.has(out.acc.id)) return;
-        const inn = big.find(r => r.d > 0 && r.market !== out.market && !used.has(r.acc.id) && Math.abs(r.d + out.d) <= 0.05 * Math.max(r.d, -out.d));
-        if (inn){ const amt = Math.min(inn.d, -out.d); paidIn += inn.market ? amt : -amt; used.add(out.acc.id); used.add(inn.acc.id); }
-      });
-    }
-    const sum = list => list.reduce((t, r) => t + r.d, 0);
-    const marketRows = rows.filter(r => r.market), ourRows = rows.filter(r => !r.market);
-    const market = sum(marketRows) - paidIn, ours = sum(ourRows) + paidIn;
-    return { from: a.month, to: b.month, tag, total: market + ours, market, ours, paidIn, paidInEntered: entered,
-      lead: Math.abs(market) > Math.abs(ours) ? 'market' : 'ours', marketRows, ourRows };
+    const tr = M.transfers(s, a, b);
+    const accs = s.accounts.filter(x => x.bucket !== 'asset' && (a.balances[x.id] != null || b.balances[x.id] != null)).map(x => {
+      const start = a.balances[x.id] ?? 0, end = b.balances[x.id] ?? 0;
+      const moved = tr.list.reduce((t, m) => t + (m.to === x.id ? m.amount : 0) - (m.from === x.id ? m.amount : 0), 0);
+      return { acc: x, group: M.groupOf(s, x), market: isMarket(s, x), start, end, d: end - start, moved, real: end - start - moved };
+    });
+    const groups = M.GROUPS.map(g => {
+      const list = accs.filter(r => r.group === g.id), sum = k => list.reduce((t, r) => t + r[k], 0);
+      return { id: g.id, name: g.id === 'market' ? tag.name : g.name, controllable: g.controllable, start: sum('start'), end: sum('end'), change: sum('d'), moved: sum('moved'), count: list.length };
+    });
+    const G = Object.fromEntries(groups.map(g => [g.id, g]));
+    // legacy v2.8 figure: money into (or out of) investments, from whichever other group moved the opposite way most
+    tr.list.filter(m => m.from == null).forEach(m => {
+      const sgn = m.legacyInto ? 1 : -1, other = ['savings', 'current'].sort((p, q) => sgn * (G[p].change - G[q].change))[0];
+      G.market.moved += sgn * m.amount; G[other].moved -= sgn * m.amount;
+    });
+    groups.forEach(g => g.real = g.change - g.moved);
+    const total = groups.reduce((t, g) => t + g.change, 0), market = G.market.real, ours = total - market;
+    const named = tr.list.filter(m => m.from != null).map(m => ({ ...m, fromAcc: M.acc(s, m.from), toAcc: M.acc(s, m.to), fromGroup: M.groupOf(s, M.acc(s, m.from)), toGroup: M.groupOf(s, M.acc(s, m.to)) }));
+    const intoMarket = G.market.moved;
+    // Triangulate: market-linked and other savings went opposite ways by similar large amounts, with no move recorded
+    // between them. Likely money moved between them that we couldn't match, so say so rather than call it the market.
+    let check = null;
+    const oth = G.savings.real + G.current.real, size = Math.min(Math.abs(market), Math.abs(oth));
+    if (tr.source !== 'checkin' && Math.sign(market) !== Math.sign(oth) && size >= Math.max(2000, 0.02 * Math.abs(G.market.start))) check = { market, other: oth, size };
+    const real = list => list.filter(r => Math.abs(r.real) >= 1).sort((p, q) => Math.abs(q.real) - Math.abs(p.real));
+    return { from: a.month, to: b.month, tag, total, market, ours, groups, accounts: accs, transfers: named, source: tr.source, intoMarket, check,
+      lead: Math.abs(market) > Math.abs(ours) ? 'market' : 'ours', marketRows: real(accs.filter(r => r.market)), ourRows: real(accs.filter(r => !r.market)) };
   };
   // One plain-English line for summaries. money(n) formats an amount without a sign.
   M.driverLine = (dr, money) => {
@@ -196,6 +263,14 @@
     const ours = Math.round(dr.ours) ? `our day-to-day money ${dir(dr.ours)} ${money(Math.abs(dr.ours))}` : 'our day-to-day money unchanged';
     const mkt = Math.round(dr.market) ? `investments ${dir(dr.market)} ${money(Math.abs(dr.market))} on market prices (outside our control)` : 'investments unchanged on market prices';
     return dr.lead === 'market' ? `Markets drove it: ${mkt}; ${ours}.` : `Our own money drove it: ${ours}; ${mkt}.`;
+  };
+  // The transfers line: money moved between accounts is a shuffle, not a gain or loss.
+  M.movedLine = (dr, money) => {
+    if (!dr) return null;
+    const im = Math.round(dr.intoMarket);
+    if (im) return `${money(Math.abs(im))} moved ${im > 0 ? 'into' : 'out of'} investments ${im > 0 ? 'from' : 'to'} our other accounts: a shuffle, not a market ${im > 0 ? 'gain' : 'loss'}.`;
+    if (dr.check) return `Investments ${dr.check.market < 0 ? 'fell' : 'rose'} while our other money ${dr.check.other < 0 ? 'fell' : 'rose'} by a similar amount. If money moved between them, record it at check-in.`;
+    return null;
   };
 
   // ---------------- budget ----------------

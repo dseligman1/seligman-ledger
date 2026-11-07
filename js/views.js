@@ -359,18 +359,31 @@
     }).join('');
 
     const dr = d.length >= 2 ? M.drivers(s, dp, ds) : null, mtag = M.marketTag(s);
-    const drRows = list => list.slice(0, 3).map(r => `<div class="row clickable" data-act="openAccount" data-id="${r.acc.id}"><div><div class="name">${esc(r.acc.name)}</div></div><div class="right"><div class="big ${cls(r.d)}">${signed(r.d)}</div></div></div>`).join('') || '<div class="empty small">No change.</div>';
+    const v0 = (n, strong) => Math.round(n) ? `<span class="${strong ? cls(n) : ''}">${signed(n)}</span>` : '<span class="muted">–</span>';
+    const tline = (name, sub, g, c = '') => `<tr class="${c}"><th scope="row">${name}${sub ? `<span class="drv-sub">${sub}</span>` : ''}</th><td>${v0(g.change)}</td><td>${v0(g.moved)}</td><td>${v0(g.real, true)}</td></tr>`;
+    const G = dr ? Object.fromEntries(dr.groups.map(g => [g.id, g])) : null;
+    const accTable = dr ? `<details class="drv-more"><summary>Every account</summary><table class="drv-table">
+        <thead><tr><th></th><th>Change</th><th>Moved</th><th>Real</th></tr></thead>
+        <tbody>${dr.accounts.filter(r => Math.abs(r.d) >= 1 || Math.abs(r.moved) >= 1).sort((p, q) => Math.abs(q.d) - Math.abs(p.d)).map(r => tline(esc(r.acc.name), r.market ? 'market' : '', { change: r.d, moved: r.moved, real: r.real })).join('') || '<tr><td colspan="4" class="muted">No accounts moved.</td></tr>'}</tbody></table></details>` : '';
+    const srcLbl = dr ? { checkin: 'recorded at check-in', auto: 'spotted from the balances, so check it', invested: 'from the check-in figure' }[dr.source] || '' : '';
     const driverCard = !mtag ? `<section class="card s12"><div class="card-head"><div><h2>What drove the change</h2><div class="sub">Split the monthly swing into what we control and what markets did</div></div><div class="actions"><button class="btn sm" data-act="manageTags">Manage tags</button></div></div>
         <div class="empty">Add a <b>Market-linked</b> tag to the accounts that hold shares or funds, and the app will separate market movement from our own spending and saving.</div></section>`
       : !dr ? '' : `<section class="card s12 drivers"><div class="card-head"><div><h2>What drove the change</h2><div class="sub">${M.lbl(dr.from, 'mon')} → ${M.lbl(dr.to, 'mon')} check-ins · liquid funds ${signed(dr.total)}</div></div></div>
-        <div class="verdict"><div class="vi ${dr.lead === 'market' ? 'warn' : Math.round(dr.ours) >= 0 ? 'good' : 'bad'}" aria-hidden="true">${dr.lead === 'market' ? '~' : '£'}</div><div class="vt"><strong>${dr.lead === 'market' ? 'Mostly market movement, not our spending' : 'Mostly down to our own spending and saving'}</strong>${dr.lead === 'market'
-          ? `${esc(dr.tag.name)} accounts ${dr.market >= 0 ? 'rose' : 'fell'} <b>${gbp(Math.abs(dr.market))}</b> as share and fund prices moved. That isn't something our spending controls. Our day-to-day money moved <b>${signed(dr.ours)}</b>.`
-          : `Our day-to-day money moved <b>${signed(dr.ours)}</b>${dr.ourRows[0] ? `, led by ${esc(dr.ourRows[0].acc.name)} (${signed(dr.ourRows[0].d)})` : ''}. ${Math.round(dr.market) ? `Market prices moved our ${esc(dr.tag.name)} accounts <b>${signed(dr.market)}</b>, which is outside our control.` : `Our ${esc(dr.tag.name)} accounts barely moved.`}`}</div></div>
-        <div class="drv-split">
-          <div class="drv ${dr.lead === 'ours' ? 'lead' : ''}"><div class="k">Within our control</div><div class="v ${cls(dr.ours)}">${signed(dr.ours)}</div><div class="small muted">Cash, current accounts and cards: what spending and saving change</div><div class="rows">${drRows(dr.ourRows)}</div></div>
-          <div class="drv ${dr.lead === 'market' ? 'lead' : ''}"><div class="k">Market movement · not controllable</div><div class="v ${cls(dr.market)}">${signed(dr.market)}</div><div class="small muted">${esc(dr.tag.name)} accounts: share and fund prices going up and down</div><div class="rows">${drRows(dr.marketRows)}</div></div>
-        </div>
-        ${Math.round(dr.paidIn) ? `<div class="note">${gbp(Math.abs(dr.paidIn))} ${dr.paidIn > 0 ? 'paid into' : 'taken out of'} investments ${dr.paidInEntered ? '(from the check-in)' : '(spotted as a transfer)'} counts as our money moving, so it's left out of market movement.</div>` : `<div class="note">If you paid money into investments this month, add it in the check-in ("Paid into investments") so it isn't mistaken for market growth.</div>`}
+        <div class="verdict"><div class="vi ${dr.lead === 'market' ? 'warn' : Math.round(dr.ours) >= 0 ? 'good' : 'bad'}" aria-hidden="true">${dr.lead === 'market' ? '~' : '£'}</div><div class="vt"><strong>${dr.lead === 'market' ? 'Mostly market movement, not our spending' : 'Mostly down to our own spending and saving'}</strong>
+          Within our control: <b>${signed(dr.ours)}</b>. Market prices on ${esc(dr.tag.name)} accounts: <b>${signed(dr.market)}</b>, which isn't something our spending controls.${Math.round(dr.intoMarket) ? ` The ${gbp(Math.abs(dr.intoMarket))} moved ${dr.intoMarket > 0 ? 'into' : 'out of'} investments is a shuffle between our accounts, not a market ${dr.intoMarket > 0 ? 'gain' : 'loss'}.` : ''}</div></div>
+        ${dr.check ? `<div class="drv-check"><b>Check this:</b> ${esc(dr.tag.name)} ${dr.check.market < 0 ? 'fell' : 'rose'} ${gbp(Math.abs(dr.check.market))} after known moves while our other money ${dr.check.other < 0 ? 'fell' : 'rose'} ${gbp(Math.abs(dr.check.other))}. If money moved between them, add it in the check-in under "Money moved between our accounts", or this counts as market movement.
+          <button class="btn sm" data-act="logBalances" data-m="${dr.to}">Open ${M.lbl(dr.to, 'month')} check-in</button></div>` : ''}
+        <h3 class="drv-h">Everything</h3>
+        <table class="drv-table"><thead><tr><th></th><th>Change</th><th>Moved between accounts</th><th>Real change</th></tr></thead><tbody>
+          ${tline(esc(G.market.name), 'not controllable', G.market)}${tline(G.savings.name, '', G.savings)}${tline(G.current.name, '', G.current)}
+          ${tline('Total liquid funds', '', { change: dr.total, moved: 0, real: dr.total }, 'tot')}</tbody></table>
+        <h3 class="drv-h">Just what we control</h3>
+        <table class="drv-table"><thead><tr><th></th><th>Change</th><th>Moved between accounts</th><th>Real change</th></tr></thead><tbody>
+          ${tline(G.savings.name, '', G.savings)}${tline(G.current.name, '', G.current)}
+          ${tline('Within our control', '', { change: G.savings.change + G.current.change, moved: G.savings.moved + G.current.moved, real: dr.ours }, 'tot ctl')}</tbody></table>
+        <div class="note">Real change = change less money moved between our own accounts. Market-linked real change is price movement.
+          ${dr.transfers.length ? `<br>Moved between accounts (${srcLbl}): ${dr.transfers.map(m => `${esc(m.fromAcc.name)} → ${esc(m.toAcc.name)} <b>${gbp(m.amount)}</b>`).join(' · ')}` : dr.source === 'invested' ? `<br>Money into investments: ${srcLbl}.` : '<br>No moves between accounts recorded or spotted.'}</div>
+        ${accTable}
       </section>`;
 
     const mv = M.moves(s);
@@ -533,9 +546,10 @@
       body: `<div class="two"><div class="field"><label>Month</label><select class="input" id="log-month">${opts.join('')}</select></div>
           <div class="field"><label>Updated on</label><input class="input" type="date" id="log-date" value="${M.today()}"></div></div>
         ${section('savings', 'Savings')}${section('current', 'Current accounts')}${section('asset', 'Other assets (optional, estimates are fine)')}
-        ${M.marketTag(s) ? `<div class="section field"><label for="log-invested">Paid into investments this month (optional)</label>
-          <div class="num-wrap wide"><input class="input num" inputmode="decimal" id="log-invested" value="${existing && existing.invested != null ? inputNum(existing.invested) : ''}" placeholder="£">${signBtn}</div>
-          <div class="small muted">Money moved from your other accounts into ${esc(M.marketTag(s).name)} accounts. Use minus if you took money out. It stops a top-up looking like market growth in the summary. Leave blank to spot transfers automatically.</div></div>` : ''}
+        <div class="section" id="tr-sec"><h3>Money moved between our accounts</h3>
+          <div class="small muted" style="margin-bottom:8px">Moving money between our own accounts isn't spending, saving or market growth, so the summaries take it out. E.g. £20k from Hargreaves Lansdown into a cash ISA.</div>
+          <div class="small" id="tr-status"></div><div id="tr-list"></div>
+          <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button class="add-link" id="tr-add" type="button">+ Add a move</button><a href="#" class="small" id="tr-auto">Use spotted moves instead</a></div></div>
         <div class="section field"><label>Note for this month (optional)</label><input class="input" id="log-note" value="${esc((existing && existing.note) || '')}" placeholder="e.g. paid nursery deposit, moved £10k to HL"></div>`,
       foot: `<div class="log-totals"><div><div class="k">Savings</div><div class="v" id="lt-s">—</div></div><div><div class="k">Current</div><div class="v" id="lt-c">—</div></div><div><div class="k">Liquid</div><div class="v" id="lt-l">—</div></div></div>
         <button class="btn primary block" id="log-save">Save</button>`,
@@ -543,6 +557,29 @@
         const foot = document.getElementById('modal-foot'), touched = new Set();
         const required = accs.filter(a => a.bucket !== 'asset').map(a => a.id);
         const already = new Set(required.filter(id => M.updatedOn(existing, id)));
+        // Moves between accounts: 'auto' re-spots them as balances are typed; editing the list makes it ours ('edited').
+        const tAccs = accs.filter(a => a.bucket !== 'asset');
+        let tMode = existing && Array.isArray(existing.transfers) ? 'saved' : 'auto', tList = tMode === 'saved' ? existing.transfers.map(x => ({ ...x })) : [];
+        const legacyInv = existing && existing.invested != null && !isNaN(Number(existing.invested)) && Math.round(Number(existing.invested)) ? Number(existing.invested) : null;
+        const curSnap = () => { const bal = { ...((existing && existing.balances) || {}) }; body.querySelectorAll('[data-bal]').forEach(i => { const v = L.parseNum(i.value); if (v != null) bal[i.dataset.bal] = v; }); return { month, balances: bal }; };
+        const accOpts = sel => tAccs.map(a => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+        const renderT = () => {
+          if (tMode === 'auto') tList = prevSnap ? M.detectTransfers(s, prevSnap, curSnap()) : [];
+          body.querySelector('#tr-list').innerHTML = tList.map((x, k) => `<div class="tr-row" data-k="${k}"><select class="input" data-tf="from" aria-label="From">${accOpts(x.from)}</select><span class="muted">→</span>
+            <select class="input" data-tf="to" aria-label="To">${accOpts(x.to)}</select><input class="input num" inputmode="decimal" data-tf="amount" value="${x.amount === '' ? '' : inputNum(x.amount)}" placeholder="£" aria-label="Amount"><button type="button" class="x-btn" data-tdel="${k}" aria-label="Remove this move">×</button></div>`).join('');
+          body.querySelector('#tr-status').innerHTML = tMode === 'auto'
+            ? (tList.length ? '<span style="color:var(--accent)">Spotted from the balances.</span> Remove any that weren\'t real moves, fix amounts, or add any we missed.' : (legacyInv != null ? `Using the earlier figure: ${gbp(Math.abs(legacyInv))} ${legacyInv > 0 ? 'paid into' : 'taken out of'} investments. Add moves here to replace it.` : 'None spotted. Add any moves you made.'))
+            : 'Recorded by you. These are used exactly as listed.';
+          body.querySelector('#tr-auto').style.display = tMode === 'auto' ? 'none' : '';
+        };
+        const edited = () => { tMode = 'edited'; };
+        body.addEventListener('change', e => { const f = e.target.dataset.tf; if (!f) return; const k = Number(e.target.closest('.tr-row').dataset.k); tList[k][f] = f === 'amount' ? (L.parseNum(e.target.value) ?? '') : e.target.value; edited(); renderT(); });
+        body.addEventListener('click', e => {
+          const del = e.target.closest('[data-tdel]');
+          if (del){ e.preventDefault(); tList.splice(Number(del.dataset.tdel), 1); edited(); renderT(); }
+          if (e.target.id === 'tr-add'){ e.preventDefault(); tList.push({ from: (tAccs[0] || {}).id, to: (tAccs[1] || tAccs[0] || {}).id, amount: '' }); edited(); renderT(); const r = body.querySelectorAll('.tr-row'); if (r.length) r[r.length - 1].querySelector('[data-tf="from"]').focus(); }
+          if (e.target.id === 'tr-auto'){ e.preventDefault(); tMode = 'auto'; renderT(); }
+        });
         const recalc = () => {
           let sv = 0, cu = 0;
           body.querySelectorAll('[data-bal]').forEach(i => {
@@ -555,6 +592,7 @@
           foot.querySelector('#lt-l').innerHTML = gbp(liq) + (d != null ? `<div class="${cls(d)} tiny" style="font-weight:500">${signed(d)}</div>` : '');
           const n = required.filter(id => already.has(id) || touched.has(id)).length;
           foot.querySelector('#log-save').textContent = n === required.length ? `Save · all ${n} accounts updated` : `Save progress · ${n} of ${required.length} updated`;
+          if (tMode === 'auto') renderT();
         };
         const mark = id => { touched.add(id); const r = body.querySelector(`[data-row="${id}"]`); if (r){ r.classList.add('is-done'); const st = r.querySelector(`[data-st="${id}"]`); if (st && st.innerHTML) st.innerHTML = `<span class="upd ok">✓ Will save as updated</span>`; const b = r.querySelector('.same'); if (b) b.remove(); } };
         body.addEventListener('input', e => { if (e.target.matches('[data-bal]')){ mark(e.target.dataset.bal); recalc(); } });
@@ -562,9 +600,10 @@
         body.querySelectorAll('[data-bal]').forEach(i => i.addEventListener('focus', () => i.select()));
         body.querySelector('#log-month').addEventListener('change', e => openLog(e.target.value));
         recalc();
+        renderT();
         foot.querySelector('#log-save').addEventListener('click', () => {
           const date = body.querySelector('#log-date').value || M.today(), note = body.querySelector('#log-note').value.trim();
-          const invBox = body.querySelector('#log-invested'), invested = invBox ? L.parseNum(invBox.value) : (existing && existing.invested != null ? existing.invested : null);
+          const moves = tMode === 'auto' ? null : tList.map(x => ({ from: x.from, to: x.to, amount: Number(x.amount) })).filter(x => x.from && x.to && x.from !== x.to && x.amount > 0);
           const bal = {}; body.querySelectorAll('[data-bal]').forEach(i => { const v = L.parseNum(i.value); if (v != null) bal[i.dataset.bal] = v; });
           if (!Object.keys(bal).length){ L.toast('Enter at least one balance'); return; }
           L.commit(st => {
@@ -574,7 +613,8 @@
             touched.forEach(id => { updated[id] = date; });
             if (old && old.balances) Object.keys(old.balances).forEach(k => { if (bal[k] == null) bal[k] = old.balances[k]; });
             const snap = { month, date: Object.values(updated).sort().pop() || date, balances: bal, totals: null, updated, note };
-            if (invested != null) snap.invested = invested;
+            // our own list replaces automatic spotting and the older single "paid into investments" figure
+            if (moves) snap.transfers = moves; else if (old && old.invested != null) snap.invested = old.invested;
             if (i >= 0) st.snapshots[i] = snap; else st.snapshots.push(snap);
             st.snapshots.sort((a, b) => a.month < b.month ? -1 : 1);
           });
