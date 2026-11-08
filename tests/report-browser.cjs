@@ -17,6 +17,7 @@ fs.mkdirSync(out, { recursive: true });
       const RealDate = Date, instant = new RealDate('2026-11-04T12:00:00Z').valueOf();
       window.Date = class extends RealDate { constructor(...args){ super(...(args.length ? args : [instant])); } static now(){ return instant; } };
       sessionStorage.setItem('ledger_demo', '1');
+      localStorage.setItem('ledger_tour_v1_demo', '1');
     });
     await page.goto('http://127.0.0.1:8767/');
     await page.waitForSelector('#page .update-card');

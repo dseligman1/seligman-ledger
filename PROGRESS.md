@@ -33,6 +33,18 @@ around **monthly snapshots**:
 
 ## Architecture
 
+### v2.10 (2026-11-08): household entry, guided setup and annual amounts
+
+- Household chooser: **Dan & Micks** keeps `ledger.json`, `data.json` fallback and existing device preferences. **Sal & Phil** uses only `ledger-sal-phil.json`, with no legacy fallback. Both use the existing one-time GitHub token connection; subsequent visits need their household PIN. No credentials are included in source or documentation.
+- **Try the demo** opens immediately, without a username, PIN or token. Existing local-only demo storage, reset and exit remain. Demo UI preferences are isolated from the real households.
+- Eight-step first-run guide adapted from Family Finances Tracker: real-page navigation/highlighting, back/next/skip, keyboard focus containment, replay from Settings. Completion is local to the household/demo on that device. Guide lives in `js/onboarding.js`; no financial-state writes for tour completion.
+- Sal & Phil's encrypted starter is copied from the Family Finances Tracker's flattened test dataset (same account names and amounts). No Dan & Micks data was copied. Starter notice remains until explicitly dismissed. Check-in confirmations, reports and push subscriptions are reset. Calendar reminders are available; the existing phone-push Action remains Dan & Micks only.
+- `budget.lines[].amountPeriod[year]` is `monthly` or `annual`. `M.inputAmount` reads the entered value; `M.amt` always returns the monthly equivalent, keeping charts, cover, reports and forecasts consistent. Budget rows show `/mo` or `/year`; line details let each year choose independently. Switching units converts the value, preserving totals. New-year copies include the unit and payment months.
+- `L.normalise` converts existing entries with exactly one pay month to annual (value ×12). Multi-month and every-month entries keep their values and monthly units. Explicit units prevent double migration; normalization happens on load/import/restore and persists with the next ordinary save. Original encrypted Dan & Micks file was not edited by this release.
+- Settings → Change PIN re-encrypts only the selected household after current-PIN confirmation and a SHA check. Failed/concurrent changes keep the current key. Saves verify the remote envelope before writing, preventing an old-PIN session from replacing a newer one. Older Versions still require their original PIN. Dan's reminder `LEDGER_PIN` secret must be updated separately after a PIN change.
+- Monthly backup release now explicitly includes the parents' encrypted file, alongside the full-history bundle.
+- Verification: 23 Node tests; onboarding browser test (390/1280px, invented data and mocked GitHub) for demo/tour/annual edits/household/PIN rotation; existing report browser regression. Screenshots inspected in private `../outputs/onboarding/`. All 60 private-preview months and yearly totals match v2.9; accounts, snapshots, plan history and original `ledger.json` unchanged. No live writes during browser QA. Real iPhone checks remain outstanding.
+
 ### v2.9 (2026-11-07): moves between accounts, full + controllable tables
 
 Why: v2.8 only netted 1-to-1 transfers within 5%, so money moved out of a market-linked account (whose balance also moved with prices) into a cash ISA read as a market loss.
@@ -76,7 +88,7 @@ also works from `file://`.
 | `sw.js` | Service worker. Only shows push notifications and handles taps; no caching |
 | `.github/workflows/reminders.yml` + `.github/reminders/remind.mjs` | Scheduled check-in reminders (see below) |
 
-- **Data file**: `ledger.json` (encrypted v2). The v1 file `data.json` is **left untouched** as a backup;
+- **Data files**: `ledger.json` for Dan & Micks and `ledger-sal-phil.json` for Sal & Phil (encrypted v2). The v1 file `data.json` is **left untouched** as a backup;
   if `ledger.json` is ever missing, unlock migrates `data.json` automatically.
 - **Sync**: last-write-wins; re-reads the `sha` before each PUT, retries once on conflict; pulls on
   focus/visibility if not mid-edit.
@@ -96,9 +108,7 @@ localStorage; Settings → Reset preview restores the seed.
 
 ## Demo mode (v2.4, for showing the app to others)
 
-- **Log in**: token or PIN screen → "Log in to the demo" → name `test demo`, PIN `123456` (case and
-  spacing in the name don't matter). The check is in `app.js` (`demoLogin`); it's a convenience, not
-  security, because the repo is public. Real data still needs the token + real PIN.
+- **Open**: household chooser, connection or PIN screen → **Try the demo**. One tap; no credentials (since v2.10). Real households still need the device connection token and their own PIN.
 - **Mode**: login sets `sessionStorage.ledger_demo = 1` and reloads. `L.DEMO` (core.js) is read once at
   load; `L.LOCAL = PREVIEW || DEMO` switches off every GitHub read/write, focus pulls and push
   notifications. Closing the tab ends the demo; Exit demo / Lock clear the flag.

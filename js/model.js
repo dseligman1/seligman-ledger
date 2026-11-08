@@ -283,7 +283,9 @@
   M.kindName = k => (M.KINDS.find(x => x.id === k) || {}).name || k;
   M.years = s => s.budget.years.slice().sort();
   M.budgetYear = (s, y) => { const ys = M.years(s); let best = ys[0]; ys.forEach(v => { if (v <= y) best = v; }); return best; };
-  M.amt = (line, y) => Number(line.amounts && line.amounts[y]) || 0;
+  M.amountPeriod = (line, y) => line.amountPeriod && line.amountPeriod[y] === 'annual' ? 'annual' : 'monthly';
+  M.inputAmount = (line, y) => Number(line.amounts && line.amounts[y]) || 0;
+  M.amt = (line, y) => M.inputAmount(line, y) / (M.amountPeriod(line, y) === 'annual' ? 12 : 1);
   // Monthly-equivalent totals for a year (a bonus paid once still counts as 1/12 a month here).
   M.plan = (s, year) => memo('plan' + year, () => {
     const y = M.budgetYear(s, year);

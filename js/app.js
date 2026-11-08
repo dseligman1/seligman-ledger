@@ -48,6 +48,7 @@
   // ---------------- state + render ----------------
   L.S = null;
   L.commit = (fn, opts = {}) => {
+    if (L.store.rotating){ L.toast('Please wait for the PIN change to finish.'); return; }
     fn(L.S);
     L.S.meta.updatedAt = new Date().toISOString();
     M.invalidate();
@@ -74,6 +75,7 @@
     const keep = a && a !== document.body && root.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) ? { key: fieldKey(a), tag: a.tagName, sel: textField(a) ? [a.selectionStart, a.selectionEnd] : null } : null;
     root.innerHTML = page.render();
     renderNav();
+    if (L.tourHighlight) L.tourHighlight();
     L.mountCharts(root);
     if (L.reports) L.reports.afterRender();
     if (keep){
@@ -92,7 +94,7 @@
       <button class="si" data-act="manageTags">${L.icons.tag}<span>Manage tags</span></button>
       <button class="si" data-act="reminder">${L.icons.bell}<span>Monthly reminder</span></button>`;
     if (L.reports) $('side-actions').insertAdjacentHTML('beforeend', `<button class="si" data-act="monthlyReport">${L.icons.trends}<span>Monthly reviews</span></button>`);
-    $('side-foot').innerHTML = `<div class="seg" role="group" aria-label="Theme">${[['dark','Dark'],['light','Light'],['system','Auto']].map(([v, n]) => `<button class="${UI.theme === v ? 'on' : ''}" data-act="theme" data-v="${v}">${n}</button>`).join('')}</div>
+    $('side-foot').innerHTML = `<div class="small muted" style="margin-bottom:8px">${L.DEMO ? 'Demo household' : L.PREVIEW ? 'Local preview' : esc(L.household.name)}</div><div class="seg" role="group" aria-label="Theme">${[['dark','Dark'],['light','Light'],['system','Auto']].map(([v, n]) => `<button class="${UI.theme === v ? 'on' : ''}" data-act="theme" data-v="${v}">${n}</button>`).join('')}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="settings">${L.icons.settings.replace('<svg', '<svg width="15" height="15"')}Settings</button>${L.PREVIEW ? '' : `<button class="btn sm" data-act="lock">${L.icons.lock.replace('<svg', '<svg width="15" height="15"')}${L.DEMO ? 'Exit demo' : 'Lock'}</button>`}</div>`;
     $('theme-btn').innerHTML = isDark() ? L.icons.sun : L.icons.moon;
     // home-screen icon badge (installed app, where supported)
@@ -140,7 +142,7 @@
       L.mountCharts(body); body.scrollTop = top;
       mounted = m; if (m.onMount) m.onMount(body);
     },
-    close(){ builder = null; mounted = null; $('modal').classList.remove('on'); document.body.style.overflow = ''; setTimeout(() => { if (!builder){ $('modal-body').innerHTML = ''; } }, 200); if (pending){ pending = false; L.render(); } if (L.reports) L.reports.afterRender(); },
+    close(){ if (L.store.rotating) return; builder = null; mounted = null; $('modal').classList.remove('on'); document.body.style.overflow = ''; setTimeout(() => { if (!builder){ $('modal-body').innerHTML = ''; } }, 200); if (pending){ pending = false; L.render(); } if (L.reports) L.reports.afterRender(); },
     get isOpen(){ return !!builder; },
   };
 
@@ -178,6 +180,12 @@
     settings(){ openSettings(); },
     theme(el){ UI.theme = el.dataset.v; L.saveUI(); applyTheme(); L.render(); if (L.modal.isOpen) L.modal.refresh(); },
     lock(){ if (L.DEMO) L.exitDemo(); else L.store.lock(); },
+    switchHousehold(){ if (L.DEMO) L.exitDemo(); else L.store.lock(true); },
+    starterReady(){
+      if (!confirm('Have you replaced the example accounts, balances, budget and Planner figures with your own?')) return;
+      L.commit(s => { s.meta.starterData = false; });
+      $('preview-bar').classList.add('hidden');
+    },
     resetPreview(){ if (confirm('Reset the preview back to the spreadsheet data? Your preview edits will be lost.')) L.resetPreview(); },
     resetDemo(){ if (confirm('Reset the demo back to its original made-up data? Every change made in the demo on this browser will be lost.')) L.resetDemo(); },
     exitDemo(){ L.exitDemo(); },
@@ -252,7 +260,7 @@
   const deviceName = () => { const u = navigator.userAgent; const d = isIOS ? (/iPad/.test(u) || !/iPhone/.test(u) ? 'iPad' : 'iPhone') : /Android/.test(u) ? 'Android' : /Mac/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows PC' : 'Device'; return d + (standalone() ? ' (home-screen app)' : ''); };
   const push = L.push = { endpoint: null, ready: false };
   push.init = async () => {
-    if (!pushCapable()) { push.ready = true; return; }
+    if (L.LOCAL || L.householdId !== 'dan' || !pushCapable()) { push.ready = true; return; }
     try {
       const reg = await navigator.serviceWorker.register('sw.js', { scope: './' });
       const sub = await reg.pushManager.getSubscription();
@@ -264,6 +272,7 @@
   };
   const pushHtml = () => {
     if (L.DEMO) return '<div class="small muted">Switched off in the demo. In the real app: a notification at 9am on the 1st of each month, then every day until that month\'s check-in is ticked off.</div>';
+    if (L.householdId !== 'dan') return '<div class="small muted">Use the calendar reminder below for your monthly check-in.</div>';
     const s = L.S, subs = s.push.subs, mine = push.endpoint && subs.some(x => x.endpoint === push.endpoint);
     const intro = '<div class="small muted" style="margin-bottom:10px">A notification at 9am on the 1st of each month, then every day at 9am until that month\'s check-in is ticked off.</div>';
     let ctl;
@@ -282,6 +291,7 @@
     return intro + ctl + list;
   };
   L.acts.pushOn = async () => {
+    if (L.LOCAL || L.householdId !== 'dan') return;
     try {
       const perm = await Notification.requestPermission(); // must be the first await: iOS needs it inside the tap
       if (perm !== 'granted'){ L.toast('Notifications weren\'t allowed'); L.modal.refresh(); return; }
@@ -318,6 +328,32 @@
   };
 
   // ---------------- settings ----------------
+  L.acts.changePin = () => {
+    if (L.LOCAL) return;
+    L.modal.open(() => ({
+      title:'Change household PIN', narrow:true,
+      body:`<p class="small muted">For ${esc(L.household.name)}. Both of you will use the new PIN on your next sign-in. Older saved versions still need the PIN they were encrypted with.</p>
+        ${L.householdId === 'dan' ? '<div class="note box">After changing your PIN, update the GitHub reminder setting LEDGER_PIN so your existing phone reminders can continue.</div>' : ''}
+        <form id="change-pin-form">
+          <div class="field"><label for="pin-current">Current PIN</label><input class="input" id="pin-current" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="current-password" required></div>
+          <div class="field"><label for="pin-new">New six-digit PIN</label><input class="input" id="pin-new" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" required></div>
+          <div class="field"><label for="pin-confirm">Confirm new PIN</label><input class="input" id="pin-confirm" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" required></div>
+          <div class="gate-error" id="change-pin-error" role="alert"></div>
+          <button class="btn primary block" id="change-pin-submit" type="submit">Save new PIN</button>
+        </form>`,
+      onMount(){
+        $('change-pin-form').addEventListener('submit', async ev => {
+          ev.preventDefault();
+          const current = $('pin-current').value, next = $('pin-new').value;
+          if (next !== $('pin-confirm').value){ $('change-pin-error').textContent = 'The new PINs do not match.'; return; }
+          const button = $('change-pin-submit'); button.disabled = true; button.textContent = 'Saving…';
+          $('change-pin-error').textContent = '';
+          try { await L.store.changePin(current, next, L.S); L.modal.close(); L.toast('Your new household PIN is saved.'); }
+          catch(e){ $('change-pin-error').textContent = e.name === 'GhConflict' ? 'The ledger changed on another device. Reopen the app and try again.' : e.name === 'OperationError' ? 'The PIN has changed on another device. Lock and unlock again.' : e.message; button.disabled = false; button.textContent = 'Save new PIN'; }
+        });
+      },
+    }));
+  };
   function openSettings(){
     L.modal.open(() => {
       const s = L.S;
@@ -326,6 +362,8 @@
       return {
         title: 'Settings', narrow: true,
         body: `
+          <div class="section"><h3>${L.DEMO ? 'Demo household' : esc(L.household.name)}</h3><button class="btn" data-act="tour">Show me the guide</button></div>
+          ${L.LOCAL ? '' : '<div class="section"><h3>Household PIN</h3><div class="small muted" style="margin-bottom:8px">Change the six-digit PIN used by both of you.</div><button class="btn" data-act="changePin">Change PIN</button></div>'}
           <div class="section"><h3>Look</h3><div class="seg">${themeSeg}</div></div>
           <div class="section"><h3>Phone notifications</h3>${pushHtml()}</div>
           <div class="section"><h3>Calendar reminder</h3><div class="small muted" style="margin-bottom:8px">Prefer your calendar? Adds a repeating event: 9am on the 1st of each month, with a nudge two days later.</div><button class="btn" data-act="reminder">${L.icons.bell.replace('<svg', '<svg width="16" height="16"')}Add to calendar</button></div>
@@ -337,7 +375,7 @@
             <select class="input" data-edit="field" data-coll="settings" data-f="marketTagId" data-refresh="1">${(() => { const auto = s.tags.find(t => /market/i.test(t.name)) || s.tags.find(t => /invest|stocks|shares|funds/i.test(t.name)), cur = s.settings.marketTagId || '';
               return `<option value="" ${!cur ? 'selected' : ''}>Automatic${auto ? ' (' + esc(auto.name) + ')' : ' (no matching tag)'}</option>` + s.tags.map(t => `<option value="${t.id}" ${cur === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('') + `<option value="none" ${cur === 'none' ? 'selected' : ''}>None: don't split</option>`; })()}</select></div>
           <div class="section"><h3>Your data</h3>
-            <div class="small muted" style="margin-bottom:10px">${L.DEMO ? 'Demo: made-up data. Changes stay in this browser until you reset it, and never reach GitHub.' : L.PREVIEW ? 'Preview mode: changes stay in this browser only and never reach GitHub.' : 'Encrypted with your PIN and saved to <code>ledger.json</code> in the GitHub repo. Every save is a commit, so nothing is ever lost.'}
+            <div class="small muted" style="margin-bottom:10px">${L.DEMO ? 'Demo: made-up data. Changes stay in this browser until you reset it, and never reach GitHub.' : L.PREVIEW ? 'Preview mode: changes stay in this browser only and never reach GitHub.' : 'Encrypted with your household PIN and synced between connected devices. Previous saves are kept in Versions.'}
               ${s.meta.updatedAt ? '<br>Last change: ' + new Date(s.meta.updatedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : ''}${s.meta.importedFrom ? '<br>Imported from: ' + esc(s.meta.importedFrom) : ''}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               ${L.LOCAL ? '' : '<button class="btn" data-act="versions">Versions…</button>'}
@@ -348,7 +386,7 @@
             </div>
             <div class="note">The backup file is <b>not</b> encrypted — keep it somewhere private.</div></div>
           ${L.DEMO ? '<div class="section"><h3>Demo</h3><button class="btn" data-act="exitDemo">Exit demo</button></div>' : ''}
-          ${L.LOCAL ? '' : `<div class="section"><h3>This device</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="lock">Lock now</button><button class="btn" data-act="changeToken">Change GitHub token</button></div></div>`}
+          ${L.LOCAL ? '' : `<div class="section"><h3>This device</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="lock">Lock now</button><button class="btn" data-act="switchHousehold">Switch household</button><button class="btn" data-act="changeToken">Change connection token</button></div></div>`}
           <div class="section note">The Seligman Ledger · v2 · data schema ${s.meta.schemaVersion}</div>`,
       };
     });
@@ -447,7 +485,7 @@
   });
 
   // ---------------- gates + boot ----------------
-  const show = id => ['gate-connect','gate-pin','gate-demo','gate-msg','app'].forEach(g => $(g).classList.toggle('hidden', g !== id));
+  const show = id => ['gate-connect','gate-pin','gate-households','gate-msg','app'].forEach(g => $(g).classList.toggle('hidden', g !== id));
   function syncStatus(kind, msg){ const d = $('sync-dot'); if (!d) return; d.className = 'sync-dot ' + kind; $('sync-label').textContent = msg; }
   L.store.onStatus = syncStatus;
   L.store.onRemote = s => { L.S = s; M.invalidate(); if (L.reports && L.reports.sync(s)) L.store.queue(s); if (!editing() && !L.modal.isOpen) L.render(); else pending = true; };
@@ -456,9 +494,14 @@
     $('settings-btn').innerHTML = L.icons.settings; $('modal-close').innerHTML = L.icons.close;
     $('menu-btn').innerHTML = L.icons.menu; $('side-close').innerHTML = L.icons.close;
     document.querySelector('.side').addEventListener('click', ev => { if (ev.target.closest('[data-act="logBalances"],[data-act="manageTags"],[data-act="quickOneOff"],[data-act="settings"],[data-act="monthlyReport"]')) closeMenu(); });
+    document.querySelector('.top-brand').innerHTML = L.LOCAL ? 'The <em>Seligman</em> Ledger' : esc(L.household.name);
     if (L.PREVIEW) $('preview-bar').classList.remove('hidden');
     if (L.DEMO){
       $('preview-bar').innerHTML = `<div class="inner"><strong>Demo</strong><span>Made-up data, saved only in this browser.</span><span class="bar-actions"><button class="btn sm" data-act="resetDemo">Reset demo data</button><button class="btn sm" data-act="exitDemo">Exit demo</button></span></div>`;
+      $('preview-bar').classList.remove('hidden');
+    }
+    if (!L.LOCAL && L.S.meta.starterData){
+      $('preview-bar').innerHTML = '<div class="inner"><strong>Example figures</strong><span>Replace the account names, balances, budget and Planner amounts with your own.</span><span class="bar-actions"><button class="btn sm" data-act="tour">Show guide</button><button class="btn sm" data-act="starterReady">I have updated the figures</button></span></div>';
       $('preview-bar').classList.remove('hidden');
     }
   }
@@ -469,6 +512,7 @@
     if (L.LOCAL) syncStatus('preview', (L.DEMO ? 'Demo' : 'Preview') + ' · local only'); else syncStatus('saved', 'Synced');
     if (L.reports && L.reports.sync(L.S)) L.store.queue(L.S);
     L.render();
+    if (L.maybeTour) L.maybeTour();
     if (!L.LOCAL){
       window.addEventListener('focus', () => L.store.pullIfChanged());
       document.addEventListener('visibilitychange', () => { if (!document.hidden) L.store.pullIfChanged(); });
@@ -498,7 +542,7 @@
       const res = await L.store.unlock(pin);
       if (!res.state){
         $('pin-error').textContent = 'No ledger data found in the repo yet.';
-        $('first-run').classList.remove('hidden');
+        if (L.householdId === 'dan') $('first-run').classList.remove('hidden');
       } else {
         enterApp(res.state);
         if (res.migrated){ L.store.queue(L.S); L.toast('Upgraded your data to the new ledger'); }
@@ -518,22 +562,11 @@
       enterApp(s); return;
     }
     if (L.DEMO){ enterApp(L.loadDemo()); return; }
-    // Demo login: a made-up ledger for showing the app to others. Not a security gate; the real
-    // data still needs this device's GitHub token and the PIN.
-    let back = 'gate-connect';
-    document.querySelectorAll('[data-demo-open]').forEach(a => a.addEventListener('click', e => {
-      e.preventDefault(); back = a.closest('.gate').id; $('demo-error').textContent = ''; show('gate-demo'); $('demo-user').focus();
-    }));
-    $('demo-back').addEventListener('click', e => { e.preventDefault(); show(back); });
-    const demoLogin = () => {
-      const name = $('demo-user').value.trim().toLowerCase().replace(/\s+/g, ' ');
-      if (name === 'test demo' && $('demo-pin').value.trim() === '123456') L.startDemo();
-      else { $('demo-error').textContent = 'That name and PIN don\'t match the demo login.'; demoPin.clear(); }
-    };
-    const demoPin = pinBox('demo-pin', () => { if ($('demo-user').value.trim()) demoLogin(); });
+    document.querySelectorAll('[data-demo-open]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); L.startDemo(); }));
+    document.querySelectorAll('[data-household]').forEach(a => a.addEventListener('click', () => L.selectHousehold(a.dataset.household)));
+    document.querySelectorAll('[data-household-back]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); L.safeSS.del('ledger_household'); show('gate-households'); }));
+    $('pin-household').textContent = L.household.name;
     pinUi = pinBox('pin-input', unlock);
-    $('demo-btn').addEventListener('click', demoLogin);
-    ['demo-user', 'demo-pin'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') demoLogin(); }));
     $('pat-btn').addEventListener('click', () => {
       const v = $('pat-input').value.trim(); if (!v){ $('pat-error').textContent = 'Paste the token first.'; return; }
       L.store.setPat(v); show('gate-pin'); $('pin-input').focus();
@@ -544,8 +577,11 @@
       const s = L.normalise({ meta: {}, budget: { years: [new Date().getFullYear()], groups: [{ id: 'g-income', name: 'Income' }], lines: [] } });
       try { await L.createInitial(s); enterApp(s); } catch(e){ $('pin-error').textContent = 'Couldn\'t create the data file: ' + e.message; }
     });
+    if (!L.safeSS.get('ledger_household')){ show('gate-households'); return; }
     if (L.store.pat){ show('gate-pin'); setTimeout(() => $('pin-input').focus(), 50); } else show('gate-connect');
   };
+
+  window.addEventListener('beforeunload', ev => { if (!L.LOCAL && (L.store.dirty || L.store.saving || L.store.rotating)){ ev.preventDefault(); ev.returnValue = ''; } });
 
   // backdrop click closes
   $('modal').addEventListener('click', ev => { if (ev.target.id === 'modal') L.modal.close(); });

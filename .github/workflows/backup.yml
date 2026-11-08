@@ -24,6 +24,7 @@ jobs:
           mkdir -p out
           git bundle create "out/seligman-ledger-$D.bundle" --all
           cp ledger.json "out/ledger-$D.json"
+          cp ledger-sal-phil.json "out/ledger-sal-phil-$D.json"
           cp data.json "out/data-v1-$D.json"
           git log -1 --format='Latest commit %h, %cd' --date=iso > out/notes.txt
           ls -la out

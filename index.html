@@ -14,7 +14,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0E0F0B">
 <meta name="robots" content="noindex">
-<link rel="stylesheet" href="style.css?v=2.9.0">
+<link rel="stylesheet" href="style.css?v=2.10.0">
 <script>
   // Local preview only: loads the unencrypted seed from the private data folder (never part of the repo).
   if (new URLSearchParams(location.search).has('preview')) document.write('<script src="../data/ledger-preview.js"><\/script>');
@@ -26,12 +26,12 @@
 <div class="gate hidden" id="gate-connect">
   <div class="gate-card">
     <div class="brand">The <em>Seligman</em> Ledger</div>
-    <div class="gate-sub">First time on this device. Paste the GitHub token for this repo (fine-grained, Contents: read &amp; write).</div>
+    <div class="gate-sub">One-time setup on this device. Ask Dan for the connection token, then use your household PIN on future visits. <details class="gate-hint"><summary>Connection details</summary>A fine-grained GitHub token for this repo, with Contents: read &amp; write.</details></div>
     <div class="field"><label for="pat-input">GitHub token</label><input class="input" type="password" id="pat-input" placeholder="github_pat_…" autocomplete="off"></div>
     <button class="btn primary block" id="pat-btn">Connect</button>
     <div class="gate-error" id="pat-error"></div>
-    <div class="gate-hint">Stored only in this browser. It's only ever sent to GitHub.</div>
-    <div class="gate-hint"><a href="#" data-demo-open>Log in to the demo</a></div>
+    <div class="gate-hint">Stored only in this browser. It's only ever sent to GitHub.<br><a href="#" data-household-back>Choose a different household</a></div>
+    <div class="gate-hint"><a href="#" data-demo-open>Try the demo — no sign-in</a></div>
   </div>
 </div>
 
@@ -39,7 +39,7 @@
 <div class="gate hidden" id="gate-pin">
   <div class="gate-card">
     <div class="brand">The <em>Seligman</em> Ledger</div>
-    <div class="gate-sub">Enter your PIN to unlock.</div>
+    <div class="gate-sub"><span id="pin-household"></span><br>Enter your PIN to unlock.</div>
     <div class="field"><label for="pin-input">6-digit PIN</label><div class="pin-boxes" aria-hidden="false"><span></span><span></span><span></span><span></span><span></span><span></span><input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="pin-input" autocomplete="current-password" aria-label="6-digit PIN"></div></div>
     <button class="btn primary block" id="pin-btn" disabled>Unlock</button>
     <div class="gate-error" id="pin-error"></div>
@@ -47,20 +47,20 @@
       <div class="gate-sub" style="margin-top:14px">This PIN will lock a brand-new, empty ledger. It can't be recovered, so store it in your password manager.</div>
       <button class="btn block" id="start-empty">Start an empty ledger</button>
     </div>
-    <div class="gate-hint"><a href="#" data-demo-open>Log in to the demo</a></div>
+    <div class="gate-hint"><a href="#" data-household-back>Choose a different household</a></div><div class="gate-hint"><a href="#" data-demo-open>Try the demo — no sign-in</a></div>
   </div>
 </div>
 
-<!-- demo login -->
-<div class="gate hidden" id="gate-demo">
+<!-- household chooser -->
+<div class="gate hidden" id="gate-households">
   <div class="gate-card">
     <div class="brand">The <em>Seligman</em> Ledger</div>
-    <div class="gate-sub">Demo login. Opens the full app with a made-up household, so you can try everything. Nothing is saved to GitHub.</div>
-    <div class="field"><label for="demo-user">Name</label><input class="input" id="demo-user" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
-    <div class="field"><label for="demo-pin">6-digit PIN</label><div class="pin-boxes"><span></span><span></span><span></span><span></span><span></span><span></span><input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="demo-pin" autocomplete="off" aria-label="6-digit demo PIN"></div></div>
-    <button class="btn primary block" id="demo-btn">Open the demo</button>
-    <div class="gate-error" id="demo-error"></div>
-    <div class="gate-hint"><a href="#" id="demo-back">Back</a></div>
+    <div class="gate-sub">Your household finances, in one place.</div>
+    <button class="btn primary block household-btn" data-household="dan">Dan &amp; Micks <span>Open our ledger</span></button>
+    <button class="btn block household-btn" data-household="sal">Sal &amp; Phil <span>Open our ledger</span></button>
+    <div class="gate-divider"></div>
+    <button class="btn block" data-demo-open>Try the demo</button>
+    <div class="gate-hint">No username or PIN. Explore with made-up data.</div>
   </div>
 </div>
 
@@ -100,17 +100,19 @@
     <div class="sheet-foot" id="modal-foot"></div>
   </div>
 </div>
+<div class="tour" id="tour"></div>
 <div class="toast" id="toast" role="status"></div>
 <input type="file" id="import-input" accept="application/json,.json" class="hidden">
 
-<script src="js/core.js?v=2.9.0"></script>
-<script src="js/model.js?v=2.9.0"></script>
-<script src="js/report-model.js?v=2.9.0"></script>
-<script src="js/demo.js?v=2.9.0"></script>
-<script src="js/charts.js?v=2.9.0"></script>
-<script src="js/app.js?v=2.9.0"></script>
-<script src="js/views.js?v=2.9.0"></script>
-<script src="js/reports.js?v=2.9.0"></script>
+<script src="js/core.js?v=2.10.0"></script>
+<script src="js/model.js?v=2.10.0"></script>
+<script src="js/report-model.js?v=2.10.0"></script>
+<script src="js/demo.js?v=2.10.0"></script>
+<script src="js/charts.js?v=2.10.0"></script>
+<script src="js/app.js?v=2.10.0"></script>
+<script src="js/views.js?v=2.10.0"></script>
+<script src="js/reports.js?v=2.10.0"></script>
+<script src="js/onboarding.js?v=2.10.0"></script>
 <script>Ledger.boot();</script>
 </body>
 </html>

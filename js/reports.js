@@ -157,7 +157,7 @@
   R.afterRender = () => {
     const latest = months()[0];
     if (latest) R.prepare(L.S.monthlyReports[latest]).catch(() => {});
-    if (pendingOpen && !L.modal.isOpen){ const m = pendingOpen; pendingOpen = null; setTimeout(() => { if (L.S && L.S.monthlyReports[m]) R.open(m); }, 0); }
+    if (pendingOpen && !L.modal.isOpen && !L.tourActive){ const m = pendingOpen; pendingOpen = null; setTimeout(() => { if (L.tourActive) pendingOpen = m; else if (L.S && L.S.monthlyReports[m]) R.open(m); }, 0); }
   };
   R.card = () => {
     const cm = months()[0];

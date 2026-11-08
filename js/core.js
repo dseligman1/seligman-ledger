@@ -27,6 +27,19 @@
   L.DEMO = !L.PREVIEW && L.safeSS.get(CFG.demoKey) === '1';
   L.LOCAL = L.PREVIEW || L.DEMO; // never reads or writes GitHub
 
+  // Each household has a separate encrypted file. Keep Dan's original paths and device settings.
+  L.households = {
+    dan: { name:'Dan & Micks', file:'ledger.json', legacyFile:'data.json' },
+    sal: { name:'Sal & Phil', file:'ledger-sal-phil.json', legacyFile:null },
+  };
+  L.householdId = L.safeSS.get('ledger_household') === 'sal' ? 'sal' : 'dan';
+  L.household = L.households[L.householdId];
+  CFG.file = L.household.file; CFG.legacyFile = L.household.legacyFile;
+  if (!L.LOCAL && L.householdId !== 'dan') CFG.uiKey += '_' + L.householdId;
+  if (L.DEMO) CFG.uiKey += '_demo';
+  CFG.tourKey = 'ledger_tour_v1_' + (L.DEMO ? 'demo' : L.PREVIEW ? 'preview' : L.householdId);
+  L.selectHousehold = id => { if (L.households[id]){ L.safeSS.set('ledger_household', id); location.reload(); } };
+
   // ---------------- crypto ----------------
   const bufToB64 = buf => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
   const b64ToBuf = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -89,7 +102,7 @@
         this.pin = pin; this.sha = remote.sha;
         return { state: L.normalise(state) };
       }
-      const legacy = await ghGet(CFG.legacyFile);
+      const legacy = CFG.legacyFile ? await ghGet(CFG.legacyFile) : null;
       if (legacy){
         const v1 = await decrypt(legacy.content, pin);
         this.pin = pin; this.sha = null;
@@ -100,6 +113,8 @@
     },
 
     queue(state, message){
+      if (this.rotating) return;
+      this.revision = (this.revision || 0) + 1;
       this.dirty = true;
       if (message) this.message = message;
       if (L.LOCAL){ L.safeLS.set(L.DEMO ? CFG.demoStateKey : CFG.previewKey, JSON.stringify(state)); this.dirty = false; this.onStatus('preview', (L.DEMO ? 'Demo' : 'Preview') + ' · saved in this browser'); return; }
@@ -109,11 +124,14 @@
     },
 
     async flush(state){
-      if (L.LOCAL || !this.pin) return;
+      if (L.LOCAL || !this.pin || this.rotating) return;
       if (this.saving){ this.saveTimer = setTimeout(() => this.flush(state), 600); return; }
       this.saving = true;
+      const revision = this.revision;
       try {
         const latest = await ghGet(CFG.file);
+        // A device unlocked with an old PIN must never overwrite a newly re-encrypted ledger.
+        if (latest) await decrypt(latest.content, this.pin);
         const payload = await encrypt(state, this.pin);
         const msg = () => this.message || 'Update ledger — ' + new Date().toISOString();
         let res;
@@ -121,18 +139,23 @@
         catch(e){
           if (e.name !== 'GhConflict') throw e;
           const again = await ghGet(CFG.file);
+          if (again) await decrypt(again.content, this.pin);
           res = await ghPut(CFG.file, payload, again ? again.sha : null, msg());
         }
-        this.sha = res.content.sha; this.dirty = false; this.message = null;
-        this.onStatus('saved', 'Synced ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }));
+        this.sha = res.content.sha;
+        if (revision === this.revision){
+          this.dirty = false; this.message = null;
+          this.onStatus('saved', 'Synced ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }));
+        }
       } catch(e){
-        this.onStatus('error', e.name === 'GhAuthError' ? 'Token rejected — open Settings' : 'Not synced — retrying on next edit');
+        if (e.name === 'OperationError') this.pinChanged = true;
+        this.onStatus('error', e.name === 'OperationError' ? 'PIN changed — lock and unlock again' : e.name === 'GhAuthError' ? 'Token rejected — open Settings' : 'Not synced — retrying on next edit');
       } finally { this.saving = false; }
     },
 
     // Pull the other person's edits when the app comes back into focus.
     async pullIfChanged(){
-      if (L.LOCAL || !this.pin || this.dirty || this.saving) return;
+      if (L.LOCAL || !this.pin || this.dirty || this.saving || this.rotating) return;
       try {
         const remote = await ghGet(CFG.file);
         if (remote && remote.sha !== this.sha){
@@ -144,7 +167,39 @@
       } catch(e){ /* stay on local copy */ }
     },
 
-    lock(){ this.pin = null; location.reload(); },
+    async changePin(current, next, state){
+      if (L.LOCAL) throw new Error('The demo does not need a PIN.');
+      if (current !== this.pin) throw new Error('The current PIN is incorrect.');
+      if (!/^\d{6}$/.test(next)) throw new Error('Use exactly six digits for the new PIN.');
+      if (next === current) throw new Error('Choose a different new PIN.');
+      if (this.saving || this.dirty) throw new Error('Wait for your changes to finish syncing, then try again.');
+      if (this.rotating) throw new Error('A PIN change is already in progress.');
+      this.rotating = true; clearTimeout(this.saveTimer);
+      try {
+        const latest = await ghGet(CFG.file);
+        if (!latest || latest.sha !== this.sha) throw new Error('The ledger has changed on another device. Close Settings and reopen the app before changing the PIN.');
+        await decrypt(latest.content, current);
+        const payload = await encrypt(state, next);
+        // No blind retry: a concurrent edit or PIN change must be reviewed, never overwritten.
+        const res = await ghPut(CFG.file, payload, latest.sha, 'Change household PIN');
+        this.pin = next; this.sha = res.content.sha;
+        this.onStatus('saved', 'PIN changed and synced');
+      } finally { this.rotating = false; }
+    },
+
+    async lock(chooseHousehold = false){
+      if (this.rotating) return;
+      if (this.saving){ L.toast('Wait for syncing to finish before locking.'); return; }
+      if (this.pinChanged && this.dirty){
+        if (!confirm('The PIN changed on another device, so these edits cannot sync. You can cancel and download a backup from Settings first. Lock and discard the unsynced edits?')) return;
+        this.dirty = false;
+      }
+      clearTimeout(this.saveTimer);
+      if (this.dirty){ await this.flush(L.S); if (this.dirty){ L.toast('Your changes have not synced. Please retry before locking.'); return; } }
+      this.pin = null;
+      if (chooseHousehold) L.safeSS.del('ledger_household');
+      location.reload();
+    },
   };
 
   // Versions: every save is a commit to ledger.json, so its commit list is the full version history.
@@ -173,6 +228,18 @@
     s.coverage = Object.assign({ includeExtras:false, fundAdjustments:[], costAdjustments:[], slowTagId: null, excludeSlow: false }, s.coverage || {});
     // payMonths is per year ({ 2025: [3] }); v2.1-2.2 stored one list for every year, so spread it across them
     s.budget.lines.forEach(l => { if (Array.isArray(l.payMonths)){ const pm = l.payMonths; l.payMonths = {}; if (pm.length) s.budget.years.forEach(y => { l.payMonths[y] = pm.slice(); }); } });
+    // One-time representation change only: preserve the annual cashflow and every selected month.
+    // A stored unit also prevents later edits / repeated normalisation from multiplying again.
+    s.budget.lines.forEach(l => {
+      l.amounts = l.amounts || {}; l.amountPeriod = l.amountPeriod || {};
+      new Set([...s.budget.years.map(String), ...Object.keys(l.amounts)]).forEach(y => {
+        if (l.amountPeriod[y] === 'annual' || l.amountPeriod[y] === 'monthly') return;
+        const pm = l.payMonths && l.payMonths[y];
+        const annual = Array.isArray(pm) && pm.length === 1 && Object.prototype.hasOwnProperty.call(l.amounts, y);
+        l.amountPeriod[y] = annual ? 'annual' : 'monthly';
+        if (annual) l.amounts[y] = (Number(l.amounts[y]) || 0) * 12;
+      });
+    });
     s.house = Object.assign({ summary:[], building:[], furnishings:[], buildingPaid: null }, s.house || {});
     if (typeof s.notes !== 'string') s.notes = '';
     if (!s.planHistory || typeof s.planHistory !== 'object') s.planHistory = {};

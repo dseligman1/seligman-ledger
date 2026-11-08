@@ -159,7 +159,7 @@
         return `<div class="readout"><span>By ${M.MON[li]}: actual <b class="${cls(actual[li])}">${signed(actual[li])}</b></span><span>Plan <b>${signed(plan[li])}</b></span><span><b class="${cls(gap)}">${gap >= 0 ? 'Ahead' : 'Behind'} by ${gbp(Math.abs(gap))}</b></span></div>`;
       },
       table: () => `<table class="tbl"><thead><tr><th>Month</th><th class="r">Plan that month</th><th class="r">Actual that month</th><th class="r">Gap so far</th></tr></thead><tbody>${M.MON.map((mn, i) => { const ym = `${y}-${pad(i + 1)}`, pt = M.point(s, ym), pm = M.planMonth(s, ym); if (plan[i] == null) return ''; return `<tr><td>${mn}</td><td class="r">${signed(pm.net)}</td><td class="r ${pt ? cls(pt[key]) : ''}">${pt && pt.change != null ? signed(pt[key]) : '—'}</td><td class="r ${actual[i] != null ? cls(actual[i] - plan[i]) : ''}">${actual[i] != null ? signed(actual[i] - plan[i]) : '—'}</td></tr>`; }).join('')}</tbody></table>`,
-      notes: () => 'Past months use the plan your sheet had for that month (Cash Flow rows 85 and 87), which already included the flat rent, the house move and other one-offs you planned for. From this month on, the plan comes from the Budget tab, including any bonus months you set there.',
+      notes: () => !Object.keys(S().planHistory).length ? 'Plans use your Budget amounts and chosen payment months for each year.' : 'Past months use the plan your sheet had for that month (Cash Flow rows 85 and 87), which already included the flat rent, the house move and other one-offs you planned for. From this month on, the plan comes from the Budget tab, including any bonus months you set there.',
     };
   };
 
@@ -181,7 +181,7 @@
     const on = items.filter(i => vis('networth', i.id));
     const val = (p, id) => id === 'liquid' ? p.liquid : (p.assetsBy[id] || 0);
     return {
-      title: 'Net worth', sub: L.DEMO ? 'Liquid funds plus other assets (home and car are estimates)' : 'Liquid funds plus other assets (house and shares are estimates from the sheet)', pills: items,
+      title: 'Net worth', sub: L.DEMO ? 'Liquid funds plus other assets (home and car are estimates)' : 'Liquid funds plus other assets (estimated values)' , pills: items,
       controls: () => seg('range', RANGES, UI.range),
       draw(el, big){ C.line(el, { labels: tl.map(p => p.m), fmtX: i => M.lbl(tl[i].m), stacked: on.length > 1, height: big ? 380 : 270, aria: 'Net worth over time',
         series: on.map(i => ({ name: i.name, color: i.color, values: tl.map(p => val(p, i.id)), area: on.length === 1 })),
@@ -265,7 +265,7 @@
         <div class="drill-lines">${r.lines.length ? C.hbars(r.lines.map(x => ({ label: x.l.name, value: x.v, color: x.muted ? 'var(--line-2)' : (sm.mode === 'lines' ? lineCol(x.l.id) : r.g.color), display: `${gbp(x.v)} <span class="muted tiny">${Math.round(x.v / r.total * 100)}%</span>` })), { max: r.total }) : '<div class="muted small">No line detail for this month.</div>'}
           ${sm.mode === 'groups' ? `<button class="btn sm" data-act="spendOnly" data-g="${r.g.id}">Chart ${esc(r.g.name)} by line</button>` : ''}</div>
       </details>`).join('');
-    return `<div class="drill-head"><div><b>${M.lbl(m, 'long')}</b> <span class="muted small">· ${m > sm.now ? 'budget plan' : m === sm.now ? 'this month' : 'the sheet\'s plan'}</span></div>
+    return `<div class="drill-head"><div><b>${M.lbl(m, 'long')}</b> <span class="muted small">· ${m > sm.now ? 'budget plan' : m === sm.now ? 'this month' : Object.keys(S().planHistory).length ? 'the sheet\'s plan' : 'budget plan'}</span></div>
         <div class="small"><b>${gbp(spend)}</b> <span class="muted">of ${gbp(inflow)} income ·</span> <b class="${spend > inflow ? 'neg' : ''}">${pctTxt(inflow ? spend / inflow * 100 : null)}</b></div></div>
       ${body || '<div class="muted small">Nothing planned for the buckets you\'ve ticked.</div>'}
       ${sm.mode === 'lines' ? `<button class="btn sm" data-act="spendAll">Show all buckets</button>` : ''}
@@ -654,7 +654,7 @@
       const rows = visible.map(l => {
         const a = M.amt(l, y), pa = py ? M.amt(l, py) : null, dd = pa == null ? null : a - pa;
         return `<div class="row b-row ${l.kind === 'off' ? 'off' : ''}"><div style="min-width:0"><div class="name" data-act="openLine" data-id="${l.id}">${esc(l.name)}<span class="kind ${l.kind}">${M.kindName(l.kind)}</span>${paidLbl(l, y)}</div>${l.note ? `<div class="meta">${esc(l.note)}</div>` : ''}</div>
-          <input class="inline-num" inputmode="decimal" value="${inputNum(Math.round(a * 100) / 100)}" data-edit="amt" data-id="${l.id}" aria-label="${esc(l.name)} ${y} monthly amount">
+          <div class="budget-amount"><input class="inline-num" inputmode="decimal" value="${inputNum(Math.round(M.inputAmount(l, y) * 100) / 100)}" data-edit="amt" data-id="${l.id}" aria-label="${esc(l.name)} ${y} ${M.amountPeriod(l, y)} amount"><span class="amount-unit">${M.amountPeriod(l, y) === 'annual' ? '/year' : '/mo'}</span></div>
           <div class="dlt">${dd == null || Math.abs(dd) < 0.5 ? '' : `<span class="${cls(isIncome ? dd : -dd)}">${signed(dd)}</span>`}</div></div>`;
       }).join('');
       return `<section class="card s6 group ${col ? 'collapsed' : ''}">
@@ -670,7 +670,7 @@
     const groupShare = s.budget.groups.map(g => ({ g, v: M.groupTotal(s, g.id, y, M.OUT) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
     const sal = (s.budget.salaries || []).map(x => `<div class="row"><div><div class="name">${esc(x.name)}</div>${x.note ? `<div class="meta">${esc(x.note)}</div>` : ''}</div><div class="right">${gbp(x.amounts[y])}<div class="tiny muted">per year</div></div></div>`).join('');
 
-    return pageHead('Budget', 'What you expect to come in and go out each month. Tap any amount to change it, or a name for more options.', plusBtn('addGroup', 'Group')) + `
+    return pageHead('Budget', 'Enter monthly or annual amounts. Summaries show the monthly average. Tap a name to set the amount type and payment months.', plusBtn('addGroup', 'Group')) + `
       <div class="filters">
         <div class="f"><span class="lbl">Year</span>${seg('budgetYear', ys.map(v => [v, v + (v === s.settings.planYear ? ' ★' : '')]), y)}<button class="btn sm" data-act="addYear">+ ${ys[ys.length - 1] + 1}</button></div>
         <div class="f">${isPlan ? '<span class="chip"><i class="sw" style="background:var(--accent)"></i>Planning year</span>' : `<button class="btn sm" data-act="makePlanYear" data-y="${y}">Make ${y} the planning year</button>`}</div>
@@ -683,7 +683,7 @@
             ${sumRow('Fixed costs', 'fixed')}${sumRow('Living costs', 'living')}${sumRow('Extras', 'extra')}
             <div class="row" style="grid-template-columns:minmax(0,1fr) auto 70px"><div class="name"><b>Left over each month</b></div><div class="right big ${cls(p.net)}" style="font-size:18px">${signed(p.net)}</div><div class="right tiny">${pp ? `<span class="dlt ${cls(p.net - pp.net)}">${signed(p.net - pp.net)}</span>` : ''}</div></div>
           </div>
-          <div class="note">Fixed = must-pay (mortgage, bills, nursery). Living = day-to-day (food, kids, clothes). Extras = flexible (holidays, eating out). Same split as the sheet's column-A codes.</div>
+          <div class="note">Fixed = must-pay (mortgage, bills, nursery). Living = day-to-day (food, kids, clothes). Extras = flexible (holidays, eating out). </div>
         </section>
         ${L.chartCard('waterfall', { cls: 's7' })}
         ${L.chartCard('spend', { cls: 's12' })}
@@ -696,15 +696,21 @@
       </div>`;
   } };
   L.edits.amt = el => { const v = L.parseNum(el.value) ?? 0; L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id); l.amounts[UI.budgetYear] = v; }); };
-  L.edits.lineYear = el => { const v = L.parseNum(el.value) ?? 0; L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id); l.amounts[el.dataset.y] = v; }); };
+  L.edits.lineYear = el => { const v = L.parseNum(el.value) ?? 0; L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id); l.amounts[el.dataset.y] = v; }, { modal: true }); };
   L.acts.makePlanYear = el => L.commit(s => { s.settings.planYear = Number(el.dataset.y); });
-  L.acts.addYear = () => L.commit(s => { const ys = M.years(s), last = ys[ys.length - 1], ny = last + 1; s.budget.lines.forEach(l => { l.amounts[ny] = M.amt(l, last); const pm = M.payMonths(l, last); if (pm) l.payMonths[ny] = pm.slice(); }); (s.budget.salaries || []).forEach(x => { x.amounts[ny] = x.amounts[last]; }); s.budget.years.push(ny); UI.budgetYear = ny; L.saveUI(); L.toast(`${ny} added, copied from ${last}`); });
-  L.acts.addLine = el => { const id = L.uid('b'); L.commit(s => { const amounts = {}; s.budget.years.forEach(y => amounts[y] = 0); s.budget.lines.push({ id, groupId: el.dataset.g, name: 'New line', kind: 'living', amounts, note: '' }); }); openLine(id); };
+  L.acts.addYear = () => L.commit(s => { const ys = M.years(s), last = ys[ys.length - 1], ny = last + 1; s.budget.lines.forEach(l => { l.amounts[ny] = M.inputAmount(l, last); l.amountPeriod = l.amountPeriod || {}; l.amountPeriod[ny] = M.amountPeriod(l, last); const pm = M.payMonths(l, last); if (pm) (l.payMonths || (l.payMonths = {}))[ny] = pm.slice(); }); (s.budget.salaries || []).forEach(x => { x.amounts[ny] = x.amounts[last]; }); s.budget.years.push(ny); UI.budgetYear = ny; L.saveUI(); L.toast(`${ny} added, copied from ${last}`); });
+  L.acts.addLine = el => { const id = L.uid('b'); L.commit(s => { const amounts = {}, amountPeriod = {}; s.budget.years.forEach(y => { amounts[y] = 0; amountPeriod[y] = 'monthly'; }); s.budget.lines.push({ id, groupId: el.dataset.g, name: 'New line', kind: 'living', amounts, amountPeriod, note: '' }); }); openLine(id); };
   L.acts.addGroup = () => { const name = prompt('Name for the new group'); if (!name) return; L.commit(s => s.budget.groups.push({ id: L.uid('g'), name: name.trim() })); };
   L.acts.openLine = el => openLine(el.dataset.id);
   // Pay months are set per year (data-y); the popup shows one year at a time (payYear).
   let payYear = null;
   const payObj = l => (l.payMonths && !Array.isArray(l.payMonths)) ? l.payMonths : (l.payMonths = {});
+  L.edits.amountPeriod = el => L.commit(s => {
+    const l = s.budget.lines.find(x => x.id === el.dataset.id), y = el.dataset.y;
+    const monthly = M.amt(l, y), unit = el.value === 'annual' ? 'annual' : 'monthly';
+    l.amountPeriod = l.amountPeriod || {}; l.amountPeriod[y] = unit;
+    l.amounts[y] = monthly * (unit === 'annual' ? 12 : 1);
+  }, { modal: true });
   L.acts.payYear = el => { payYear = Number(el.dataset.y); L.modal.refresh(); };
   L.acts.payMode = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id), o = payObj(l), y = el.dataset.y; if (el.dataset.v === 'months') o[y] = M.payMonths(l, y) || [3]; else delete o[y]; }, { modal: true });
   L.acts.payMonth = el => L.commit(s => { const l = s.budget.lines.find(x => x.id === el.dataset.id), o = payObj(l), y = el.dataset.y, m = Number(el.dataset.m); const pm = o[y] = (o[y] || []).slice(); const i = pm.indexOf(m); if (i >= 0){ if (pm.length > 1) pm.splice(i, 1); } else pm.push(m); pm.sort((a, b) => a - b); }, { modal: true });
@@ -723,9 +729,9 @@
       return {
         title: l.name, sub: `${M.kindName(l.kind)} · ${esc((s.budget.groups.find(g => g.id === l.groupId) || {}).name || '')}`, narrow: true,
         body: `<div class="section">${C.hbars(ys.map(yy => ({ label: String(yy) + (yy === s.settings.planYear ? ' ★' : ''), value: M.amt(l, yy), color: yy === y ? 'var(--accent)' : 'var(--s1)', display: gbp(M.amt(l, yy)) + '/mo' })), { max })}</div>
-          <div class="section"><h3>Monthly amount by year</h3><div class="small muted" style="margin-bottom:8px">Enter the monthly average (the yearly amount ÷ 12), even if it's paid in one go. Then pick the month below.</div><div class="two">${ys.map(yy => `<div class="field"><label>${yy}</label><input class="input num" inputmode="decimal" value="${inputNum(Math.round(M.amt(l, yy) * 100) / 100)}" data-edit="lineYear" data-id="${id}" data-y="${yy}"></div>`).join('')}</div></div>
+          <div class="section"><h3>Amount by year</h3><div class="small muted" style="margin-bottom:8px">Choose monthly or annual for each year. Annual means the full year's amount; we work out the monthly average. Switching the type converts the amount and keeps the yearly total unchanged.</div><div class="two">${ys.map(yy => `<div class="field"><label for="line-amount-${yy}">${yy} amount (£)</label><input id="line-amount-${yy}" class="input num" inputmode="decimal" value="${inputNum(Math.round(M.inputAmount(l, yy) * 100) / 100)}" data-edit="lineYear" data-id="${id}" data-y="${yy}"><select class="input amount-period" aria-label="${yy} amount type" data-edit="amountPeriod" data-id="${id}" data-y="${yy}"><option value="monthly" ${M.amountPeriod(l, yy) === 'monthly' ? 'selected' : ''}>Monthly average</option><option value="annual" ${M.amountPeriod(l, yy) === 'annual' ? 'selected' : ''}>Annual total</option></select></div>`).join('')}</div></div>
           <div class="section"><h3>When is it paid?</h3>
-            <div class="small muted" style="margin-bottom:8px">Set this for each year. For example, a bonus spread across 2024 but paid in one go in March 2025.</div>
+            <div class="small muted" style="margin-bottom:8px">Choose when the yearly total is paid. With specific months, it is divided equally between those months. A monthly entry is still the average across all 12 months.</div>
             <div class="seg" role="group" aria-label="Year" style="margin-bottom:8px">${ys.map(yy => `<button class="${yy === py ? 'on' : ''}" data-act="payYear" data-y="${yy}">${yy}</button>`).join('')}</div>
             <div class="seg" style="margin-bottom:10px"><button class="${pm ? '' : 'on'}" data-act="payMode" data-id="${id}" data-y="${py}" data-v="monthly">Every month</button><button class="${pm ? 'on' : ''}" data-act="payMode" data-id="${id}" data-y="${py}" data-v="months">Specific months</button></div>
             ${pm ? `<div class="mgrid">${M.MON.map((mn, i) => `<button class="${pm.includes(i + 1) ? 'on' : ''}" data-act="payMonth" data-id="${id}" data-y="${py}" data-m="${i + 1}">${mn}</button>`).join('')}</div>
@@ -764,7 +770,7 @@
         ${L.chartCard('networth', { cls: 's6' })}
         ${L.chartCard('cover', { cls: 's6' })}
         ${L.chartCard('tags', { cls: 's6' })}
-        <section class="card s12"><h2>About this data</h2><div class="note" style="margin-top:8px">${L.DEMO ? `A made-up household for the demo. Every account is logged month by month from ${M.lbl(tl[0].m, 'long')}, so the account and tag charts cover the whole history. Home equity and the car are estimates.` : `History before Aug 2026 is the savings/current totals from rows 92–93 of the sheet (Feb and Jul 2026 weren't recorded there, so they repeat the month before). From Aug 2026 every account is logged, so account and tag charts fill in from there. House equity and Motorway shares come from the sheet's rows 82–83, which were estimates.`} ${s.events.length ? '' : 'Log big one-offs (house works, bonuses) in Planner and you can strip them out of the monthly change.'}</div></section>
+        <section class="card s12"><h2>About this data</h2><div class="note" style="margin-top:8px">${L.DEMO ? `A made-up household for the demo. Every account is logged month by month from ${M.lbl(tl[0].m, 'long')}, so the account and tag charts cover the whole history. Home equity and the car are estimates.` : !Object.keys(s.planHistory).length ? `Your recorded account balances build this history. Other assets are estimates. Starter figures are examples until you replace them with your own balances.` : `History before Aug 2026 is the savings/current totals from rows 92–93 of the sheet (Feb and Jul 2026 weren't recorded there, so they repeat the month before). From Aug 2026 every account is logged, so account and tag charts fill in from there. House equity and Motorway shares come from the sheet's rows 82–83, which were estimates.`} ${s.events.length ? '' : 'Log big one-offs (house works, bonuses) in Planner and you can strip them out of the monthly change.'}</div></section>
       </div>`;
   } };
 
