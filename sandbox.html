@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en-GB" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ledger Sandbox</title>
+<meta name="description" content="Try out how bank transactions would sort into the budget. Read-only; nothing here is saved to the ledger.">
+<link rel="icon" href="icon-192.png">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0E0F0B">
+<link rel="stylesheet" href="style.css?v=2.10.0">
+<script>
+  // Local preview only: loads the unencrypted seed from the private data folder (never part of the repo).
+  if (new URLSearchParams(location.search).has('preview')) document.write('<script src="../data/ledger-preview.js"><\/script>');
+</script>
+<style>
+  .sb-top { max-width: 1200px; margin: 0 auto; padding: 14px var(--gutter) 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sb-pill { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .sb-note { max-width: 1200px; margin: 10px auto 0; padding: 0 var(--gutter); color: var(--ink-2); font-size: 14px; }
+  #sb-main { max-width: 1200px; margin: 0 auto; padding: 14px var(--gutter) 48px; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  #sb-main > * { min-width: 0; }
+  #sb-main p { margin: 0 0 8px; }
+  .sb-months { overflow-x: auto; }
+  .sb-bar { height: 6px; border-radius: 3px; background: var(--surface-3); margin-top: 6px; overflow: hidden; max-width: 260px; }
+  .sb-bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .sb-bar span.over { background: var(--neg); }
+  .sb-bar span.inc { background: var(--pos); }
+  .sb-group + .sb-group { margin-top: 14px; }
+  .sb-group-head { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 6px 0; border-bottom: 1px solid var(--line-2); }
+  .sb-select { margin-top: 6px; max-width: 320px; width: 100%; padding: 6px 10px; font-size: 13px; }
+  .sb-txn .name { font-size: 14px; }
+  .sb-add { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 12px; }
+  .sb-stat-btn { all: unset; display: block; cursor: pointer; width: 100%; }
+  .stats .stat:has(.sb-stat-btn):hover { border-color: var(--accent); }
+  .sb-cols, .sb-cols > div { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .sb-cols > div > * { min-width: 0; }
+  @media (min-width: 720px){ .sb-add { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; } }
+  @media (min-width: 1040px){ .sb-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .sb-add { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<header class="sb-top">
+  <a class="brand" href="./" style="text-decoration:none;color:inherit">The <em>Seligman</em> Ledger</a>
+  <span class="sb-pill">Sandbox</span>
+</header>
+<p class="sb-note">Try out how bank transactions would sort into the budget before anything changes in the main app. Read-only: nothing here is saved to the ledger.</p>
+<main id="sb-main" aria-live="polite"></main>
+
+<script src="js/core.js?v=2.10.0"></script>
+<script src="js/model.js?v=2.10.0"></script>
+<script src="js/demo.js?v=2.10.0"></script>
+<script src="js/sandbox-model.js?v=0.1.0"></script>
+<script src="js/sandbox-feed.js?v=0.1.0"></script>
+<script src="js/sandbox.js?v=0.1.0"></script>
+</body>
+</html>

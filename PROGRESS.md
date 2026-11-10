@@ -33,6 +33,16 @@ around **monthly snapshots**:
 
 ## Architecture
 
+### Sandbox (2026-11-10): bank transactions vs the budget, before touching the app
+
+`sandbox.html` (not linked from the app; open `/seligman-ledger/sandbox.html`). Read-only: never calls `store.queue/flush`.
+- Sources: invented **Sample Barclays feed** (`js/sandbox-feed.js`: current account + Barclaycard, last 3 months + this month to date), **Upload a bank CSV** (parsed in memory, never saved; Barclays `Number,Date,Account,Amount,Subcategory,Memo`, Paid in/Paid out, card exports with a flip-sign tick), **Live Barclays feed** (placeholder until the nightly feed exists).
+- Budgets: demo household, `?preview` budget, or **Our real budget** read-only via `store.unlock(pin)` (needs this device's token).
+- `js/sandbox-model.js` (pure): feed format `ledger-feed/1` {accounts[], transactions[{id, accountId, date, amount (− = out), description, pending}]}; CSV parsing with stable ids and dedupe; sorting order = your pick → your rule (longest keyword wins) → paired move (equal/opposite between feed accounts within 4 days) → move wording → built-in guesses (only to lines that exist; exact name preferred) → not sorted. Refunds reduce their spending line. Plan per line = `planMonthLines` (sheet history for past months) else `lineInMonth`.
+- Rules and picks: localStorage `ledger_sandbox_v1_<demo|preview|dan|sal>`, this browser only.
+- Next: nightly Action pulls Barclays via Lunch Flow → `ledger-feed/1` → encrypted `feed-barclays.json`; plan in `../docs/2026-11-10-barclays-feed-setup.md`.
+- Verified: 5 Node tests in `tests/sandbox.test.cjs` (28 total pass); headless Chrome at 390/1280px: no errors, no external requests, no horizontal scroll; sort + make rule, CSV upload, real-budget and live placeholders; preview budget loads.
+
 ### v2.10 (2026-11-08): household entry, guided setup and annual amounts
 
 - Household chooser: **Dan & Micks** keeps `ledger.json`, `data.json` fallback and existing device preferences. **Sal & Phil** uses only `ledger-sal-phil.json`, with no legacy fallback. Both use the existing one-time GitHub token connection; subsequent visits need their household PIN. No credentials are included in source or documentation.
