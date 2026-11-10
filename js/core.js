@@ -246,6 +246,10 @@
     if (!s.checklist || typeof s.checklist !== 'object') s.checklist = {};
     s.push = Object.assign({ subs: [] }, s.push || {}); if (!Array.isArray(s.push.subs)) s.push.subs = [];
     s.accounts.forEach(a => { if (!Array.isArray(a.tags)) a.tags = []; });
+    // Life admin (v2.11): pensions with dated values, and bills / subscriptions / insurance. Kept apart from accounts.
+    s.admin = Object.assign({ pensions: [], items: [] }, s.admin && typeof s.admin === 'object' ? s.admin : {});
+    ['pensions','items'].forEach(k => { if (!Array.isArray(s.admin[k])) s.admin[k] = []; });
+    s.admin.pensions.forEach(p => { if (!Array.isArray(p.values)) p.values = []; p.values.forEach(v => { if (!v.id) v.id = L.uid('pv'); }); });
     s.snapshots.sort((a, b) => a.month < b.month ? -1 : 1);
     return s;
   };

@@ -33,6 +33,17 @@ around **monthly snapshots**:
 
 ## Architecture
 
+### v2.11 (2026-11-10): Life admin (pensions, bills, subscriptions, insurance)
+
+New sixth page **Life admin** (`js/admin.js`; bottom bar label "Admin"). Data lives in `state.admin`, apart from accounts and snapshots.
+- **Pensions** `admin.pensions[] {id, name, provider, owner, kind, note, archived, values:[{id, date, value}]}`. Kinds: workplace, personal/SIPP (pots, summed) and final salary (db), state (expected yearly income, totalled separately, never added to pots). Updated whenever: "Update pension values" round-up (blank = skip, "Same as last time"), or per pension. One value per date (a second replaces it). Due after 92 days without a value.
+- **Never** in liquid funds, savings, months of cover, net worth, check-in, transfers, monthly reviews or reminders. Shown alongside: Overview "Pensions" tile (5th stat), Life admin "Net worth + pensions" tile, Accounts note. Chart `pensions` = pots stacked at each month-end, carrying the last value forward; a pot counts from its first value.
+- **Bills/subscriptions/insurance** `admin.items[] {id, name, provider, category (utility|subscription|insurance|other), cost, period (monthly|quarterly|annual), endDate, owner, autoRenew, ref, note, archived}`. Monthly and yearly equivalents; renewal status passed / soon (≤30 days) / later. "Coming up" list, category cards, and an Overview card that appears only when something ends within 30 days, has lapsed, or a pension is due.
+- **Calendar**: "Add dates to calendar" downloads `ledger-renewals.ics` (each future end date, all-day, alarm 14 days before; plus a quarterly "update pension values" event). Stable UIDs.
+- Costs here are a record only; they don't feed the Budget tab (possible later link). Guide gains a 9th step. Demo v2 adds invented pensions and 18 items (`L.DEMO_VERSION = 2`, so saved demos rebuild). `L.normalise` adds an empty `admin` to older files; real `ledger.json` gains it on its next ordinary save.
+- Model: `M.pensions / pensionTotals / pensionSeries / pensionValues / itemMonthly / itemAnnual / renewal / adminSummary` in `model.js`.
+- Verified: 35 Node tests (7 new in `tests/life-admin.test.cjs`, incl. pensions leave liquid/net worth/check-in unchanged); `tests/admin-browser.cjs` (demo only, 390/1280px: overview tile + card, quarterly update, add pension + value, add subscription → Coming up, .ics, reload, no horizontal scroll, no errors or external requests); onboarding and report browser tests pass. Screenshots in private `../outputs/life-admin/`. Not yet on a real iPhone.
+
 ### Sandbox (2026-11-10): bank transactions vs the budget, before touching the app
 
 `sandbox.html` (not linked from the app; open `/seligman-ledger/sandbox.html`). Read-only: never calls `store.queue/flush`.
@@ -95,6 +106,7 @@ also works from `file://`.
 | `js/charts.js` | Dependency-free SVG charts: line/stacked area, signed bars + overlay, waterfall, sparkline, html bars. Tooltips, resize-aware |
 | `js/app.js` | Formatting, UI prefs, render loop, chart registry, modal, delegated events, settings, boot |
 | `js/views.js` | The five pages (Overview, Accounts, Budget, Trends, Planner), chart specs and popups |
+| `js/admin.js` | Life admin page (pensions, bills, subscriptions, insurance), its popups, calendar export, and the small Overview/Accounts pieces |
 | `sw.js` | Service worker. Only shows push notifications and handles taps; no caching |
 | `.github/workflows/reminders.yml` + `.github/reminders/remind.mjs` | Scheduled check-in reminders (see below) |
 

@@ -5,7 +5,7 @@
 (function(){
   'use strict';
   const L = window.Ledger;
-  L.DEMO_VERSION = 1;
+  L.DEMO_VERSION = 2; // 2: life admin (pensions, bills, subscriptions, insurance)
 
   L.demoState = function(){
     const M = L.model;
@@ -191,6 +191,47 @@
       keyDates: [],
       notes: 'Demo household (all made up). Mortgage fixed until 2029. Goal: keep at least 6 months of cover while saving for the loft.',
       push: { subs: [] },
+      admin: demoAdmin(ymd, now),
     };
   };
+
+  // Life admin: four pensions valued each quarter (two pots each, a final-salary scheme and a state forecast),
+  // plus bills, subscriptions and insurance with renewal dates spread around today. All invented.
+  function demoAdmin(ymd, now){
+    const M = L.model, q = [];
+    for (let o = -9; o <= 0; o += 3) q.push(o); // last four quarters (months ago)
+    const pot = (id, name, provider, owner, kind, start, step, note) => ({ id, name, provider, owner, kind, note, archived: false,
+      values: q.map((o, i) => ({ id: id + 'v' + i, date: ymd(o, 1), value: Math.round(start + step * i + (i % 2 ? 900 : -400)) })) });
+    const pensions = [
+      pot('dp1', 'Alex workplace pension', 'Aviva', 'Alex', 'workplace', 61200, 3100, 'Employer 6%, Alex 5% via salary sacrifice'),
+      pot('dp2', 'Sam workplace pension', 'Nest', 'Sam', 'workplace', 23800, 1450, 'Auto-enrolment minimum'),
+      pot('dp3', 'Alex old SIPP', 'Vanguard', 'Alex', 'personal', 18400, 520, 'From previous job, no new contributions'),
+      { id: 'dp4', name: 'Sam NHS pension', provider: 'NHS Pensions', owner: 'Sam', kind: 'db', archived: false, note: 'Expected yearly income at 67, from the annual benefit statement',
+        values: [{ id: 'dp4v0', date: ymd(-8, 15), value: 7900 }] },
+    ];
+    pensions[3].values[0].date = M.addM(now, -2) + '-15'; // a statement this year; others are due for an update
+    pensions[2].values = pensions[2].values.slice(0, 3); // last updated 3 months ago, so it shows as due
+    const it = (id, category, name, provider, cost, period, endIn, owner, extra = {}) => ({ id, category, name, provider, cost, period, endDate: endIn == null ? '' : ymd(endIn[0], endIn[1]), owner, autoRenew: false, ref: '', note: '', archived: false, ...extra });
+    const items = [
+      it('dx1', 'utility', 'Electricity and gas', 'Octopus Energy', 142, 'monthly', [5, 28], 'Joint', { note: 'Fixed tariff, exit fees until the end date' }),
+      it('dx2', 'utility', 'Broadband', 'Community Fibre', 30, 'monthly', [0, 26], 'Joint', { note: 'Contract ends this month: compare deals' }),
+      it('dx3', 'utility', 'Water', 'Thames Water', 48, 'monthly', null, 'Joint'),
+      it('dx4', 'utility', 'Council tax', 'Local council', 181.67, 'monthly', null, 'Joint', { note: '10 instalments, April to January' }),
+      it('dx5', 'utility', 'Mobile: Alex', 'giffgaff', 12, 'monthly', null, 'Alex'),
+      it('dx6', 'utility', 'Mobile: Sam', 'Three', 24, 'monthly', [9, 4], 'Sam'),
+      it('dx7', 'subscription', 'Streaming', 'Netflix', 12.99, 'monthly', null, 'Joint', { autoRenew: true }),
+      it('dx8', 'subscription', 'Music', 'Spotify Duo', 16.99, 'monthly', null, 'Joint', { autoRenew: true }),
+      it('dx9', 'subscription', 'Gym', 'PureGym', 27.99, 'monthly', [2, 1], 'Alex', { autoRenew: true, note: 'One month notice' }),
+      it('dx10', 'subscription', 'Cloud storage', 'iCloud+', 8.99, 'monthly', null, 'Sam', { autoRenew: true }),
+      it('dx11', 'subscription', 'Amazon Prime', 'Amazon', 95, 'annual', [3, 12], 'Joint', { autoRenew: true }),
+      it('dx12', 'insurance', 'Home and contents', 'Direct Line', 456, 'annual', [1, 8], 'Joint', { autoRenew: true, note: 'Renewal quote usually goes up: shop around' }),
+      it('dx13', 'insurance', 'Car', 'Admiral', 612, 'annual', [7, 19], 'Alex'),
+      it('dx14', 'insurance', 'Life cover (joint)', 'Legal & General', 28.5, 'monthly', [220, 1], 'Joint', { note: '£350k level term to 2045' }),
+      it('dx15', 'insurance', 'Pet insurance', 'Petplan', 34, 'monthly', [1, 3], 'Joint', { autoRenew: true }),
+      it('dx16', 'insurance', 'Travel', 'Staysure', 89, 'annual', [-1, 20], 'Joint', { note: 'Expired: renew before the ski trip' }),
+      it('dx17', 'other', 'Breakdown cover', 'RAC', 9.5, 'monthly', [4, 2], 'Alex'),
+      it('dx18', 'other', 'Boiler cover', 'British Gas HomeCare', 18, 'monthly', [6, 15], 'Joint'),
+    ];
+    return { pensions, items };
+  }
 })();

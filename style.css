@@ -189,7 +189,7 @@ textarea.input { resize: vertical; min-height: 90px; line-height: 1.45; }
 .tabs button:not(.on):hover { color: var(--ink); }
 
 .bottomnav {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, 1fr);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(6, 1fr);
   background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
 }
@@ -628,3 +628,15 @@ button.chip.on { border-color: var(--accent); color: var(--ink); background: var
 .amount-period { margin-top: 6px; }
 .tour-card { position: relative; z-index: 57; max-height: calc(100dvh - var(--nav-h) - 50px); overflow-y: auto; }
 .touring { overflow: hidden; }
+
+/* Life admin (v2.11) */
+.stats.five > :last-child { grid-column: 1 / -1; }
+@media (min-width: 640px) {
+  .stats.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .stats.five > :last-child { grid-column: auto; }
+}
+@media (min-width: 640px) and (max-width: 1099px) { .stats.five .stat .v { font-size: 20px; } .stats.five .stat { padding: 12px 11px; } }
+.pv-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.pv-add .num-wrap { min-width: 0; }
+.upd.neg { color: var(--neg); }
+.bottomnav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }

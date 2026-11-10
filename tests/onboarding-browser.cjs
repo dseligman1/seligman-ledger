@@ -27,8 +27,8 @@ async function encrypted(state,pin){
     await page.locator('#gate-households [data-demo-open]').click();
     await page.locator('#tour.on').waitFor();
     assert.equal(await page.locator('#demo-user').count(),0);
-    for(let i=0;i<8;i++){
-      assert.equal(await page.locator('.tour-step').textContent(),`${i+1} of 8`);
+    for(let i=0;i<9;i++){
+      assert.equal(await page.locator('.tour-step').textContent(),`${i+1} of 9`);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
       if(i===3) await page.screenshot({animations:'disabled',path:path.join(out,'phone-guide-budget.png')});
       if(i===0){await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.closest('#tour')!==null),true);}
@@ -99,6 +99,6 @@ async function encrypted(state,pin){
     await p.screenshot({animations:'disabled',path:path.join(out,'phone-parents-starter.png')});
     assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     assert.ok(requests.length>0);assert.deepEqual(errors,[]);
-    console.log('PASS: one-tap demo, eight-step guide/replay, annual conversion/timing, phone/desktop layout, household routing, wrong PIN, PIN change/relock. Mocked saves only.');
+    console.log('PASS: one-tap demo, nine-step guide/replay, annual conversion/timing, phone/desktop layout, household routing, wrong PIN, PIN change/relock. Mocked saves only.');
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

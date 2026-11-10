@@ -404,12 +404,14 @@
       </section>
       ${checkinCard(s)}
       ${L.reports ? L.reports.card() : ''}
-      <div class="stats" style="grid-column:1/-1">
+      <div class="stats five" style="grid-column:1/-1">
         <button class="stat" data-act="openBucket" data-b="savings"><div class="k">Savings</div><div class="v">${gbp(l.savings)}</div><div class="d">${prev ? chg(l.savings - prev.savings, ' vs last month') : ''}</div></button>
         <button class="stat" data-act="openBucket" data-b="current"><div class="k">Current accounts</div><div class="v">${gbp(l.current)}</div><div class="d">${prev ? chg(l.current - prev.current, ' vs last month') : ''}</div></button>
         <button class="stat" data-act="tab" data-tab="planner"><div class="k">Months of cover</div><div class="v">${L.fmt.months(cov.months)}</div><div class="d">${cov.plan.year} plan, essentials</div></button>
         <button class="stat" data-act="expand" data-key="networth"><div class="k">Net worth</div><div class="v">${gbp(nw)}</div><div class="d">Incl. est. house + shares</div></button>
+        ${L.admin ? L.admin.stat() : ''}
       </div>
+      ${L.admin ? L.admin.card() : ''}
       ${driverCard}
       ${L.chartCard('composition', { cls: 's7' })}
       ${L.chartCard('change', { cls: 's5' })}
@@ -459,7 +461,7 @@
         ${L.chartCard('tags', { cls: 's6' })}${L.chartCard('networth', { cls: 's6' })}
         ${archived.length ? `<section class="card s12"><h2>Archived</h2><div class="rows" style="margin-top:8px">${archived.map(accRow).join('')}</div></section>` : ''}
       </div>
-      <div class="note">Net worth: liquid ${gbp(M.latest(s) ? M.latest(s).liquid : 0)} + other assets ${gbp(Object.values(M.assetValues(s)).reduce((t, x) => t + x.value, 0))} = <b>${gbp(M.netWorth(s))}</b>. Other assets are estimates until you enter real values.</div>`;
+      <div class="note">Net worth: liquid ${gbp(M.latest(s) ? M.latest(s).liquid : 0)} + other assets ${gbp(Object.values(M.assetValues(s)).reduce((t, x) => t + x.value, 0))} = <b>${gbp(M.netWorth(s))}</b>. Other assets are estimates until you enter real values.${L.admin ? L.admin.note() : ''}</div>`;
   } };
 
   L.acts.goTags = () => { UI.groupBy = 'tag'; UI.tab = 'accounts'; L.saveUI(); L.render(); window.scrollTo({ top: 0 }); };

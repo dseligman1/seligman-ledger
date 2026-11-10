@@ -35,7 +35,7 @@
     bell: ic('<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
     lock: ic('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>'),
   };
-  const TABS = [['overview','Overview'],['accounts','Accounts'],['budget','Budget'],['trends','Trends'],['planner','Planner']];
+  const TABS = [['overview','Overview'],['accounts','Accounts'],['budget','Budget'],['trends','Trends'],['planner','Planner'],['admin','Life admin','Admin']];
 
   // ---------------- UI prefs (per device) ----------------
   let saved = {}; try { saved = JSON.parse(L.safeLS.get(L.CFG.uiKey) || '{}'); } catch(e){}
@@ -85,7 +85,7 @@
   };
   function renderNav(){
     const ci = M.checkin(L.S, M.thisMonth()), out = ci.total - ci.done, due = out > 0;
-    const btn = ([id, n]) => `<button data-act="tab" data-tab="${id}" class="${UI.tab === id ? 'on' : ''}" ${UI.tab === id ? 'aria-current="page"' : ''}>${L.icons[id]}<span>${n}</span>${id === 'overview' && due ? '<i class="dot-badge" aria-label="Check-in due"></i>' : ''}</button>`;
+    const btn = ([id, n, short]) => `<button data-act="tab" data-tab="${id}" class="${UI.tab === id ? 'on' : ''}" ${UI.tab === id ? 'aria-current="page"' : ''} aria-label="${n}">${L.icons[id]}<span>${short || n}</span>${id === 'overview' && due ? '<i class="dot-badge" aria-label="Check-in due"></i>' : ''}</button>`;
     $('bottomnav').innerHTML = TABS.map(btn).join('');
     $('side-nav').innerHTML = TABS.map(([id, n]) => `<button data-act="tab" data-tab="${id}" class="${UI.tab === id ? 'on' : ''}">${L.icons[id]}<span>${n}</span>${id === 'overview' && due ? `<span class="nbadge">${out} to update</span>` : ''}</button>`).join('');
     $('side-actions').innerHTML = `<span class="lbl">Quick actions</span>

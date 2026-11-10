@@ -416,6 +416,77 @@
     });
   });
 
+  // ---------------- life admin: pensions ----------------
+  // Pensions live in admin.pensions, apart from accounts and the monthly snapshots, so they never count as
+  // liquid funds, savings, months of cover or net worth. Each holds dated values [{ id, date, value }],
+  // typically updated once a quarter. Pots (workplace, personal/SIPP) add up to one total; final-salary and
+  // state pensions are an expected yearly income, so they're totalled separately and never added to pots.
+  M.PENSION_KINDS = [
+    { id: 'workplace', name: 'Workplace pension', pot: true },
+    { id: 'personal', name: 'Personal pension or SIPP', pot: true },
+    { id: 'db', name: 'Final salary (defined benefit)', pot: false },
+    { id: 'state', name: 'State pension', pot: false },
+  ];
+  M.PENSION_DUE_DAYS = 92; // about a quarter
+  M.isPot = p => (M.PENSION_KINDS.find(k => k.id === p.kind) || { pot: true }).pot;
+  M.pensionValues = p => (p.values || []).filter(v => v && /^\d{4}-\d{2}-\d{2}$/.test(v.date || '') && v.value != null && v.value !== '' && !isNaN(Number(v.value)))
+    .map(v => ({ ...v, value: Number(v.value) })).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  M.pensionValueAt = (p, iso) => { let out = null; M.pensionValues(p).forEach(v => { if (v.date <= iso) out = v; }); return out; };
+  M.pensions = s => memo('pens', () => ((s.admin && s.admin.pensions) || []).filter(p => !p.archived).map(p => {
+    const vals = M.pensionValues(p), last = vals[vals.length - 1] || null, prev = vals[vals.length - 2] || null;
+    const age = last ? M.daysSince(last.date) : null;
+    return { p, pot: M.isPot(p), vals, last, prev, change: last && prev ? last.value - prev.value : null, age, due: !last || age > M.PENSION_DUE_DAYS };
+  }));
+  M.pensionTotals = s => memo('pensT', () => {
+    const list = M.pensions(s), pots = list.filter(x => x.pot && x.last), inc = list.filter(x => !x.pot && x.last);
+    const sum = l => l.reduce((t, x) => t + x.last.value, 0);
+    const prevSum = pots.reduce((t, x) => t + (x.prev ? x.prev.value : x.last.value), 0);
+    const dates = list.filter(x => x.last).map(x => x.last.date).sort();
+    return { count: list.length, pots: sum(pots), potCount: pots.length, income: sum(inc), incomeCount: inc.length,
+      change: pots.some(x => x.prev) ? sum(pots) - prevSum : null, oldest: dates[0] || null, newest: dates[dates.length - 1] || null, due: list.filter(x => x.due) };
+  });
+  // Total of the pots at each month-end, from the first recorded value to this month. A pot only counts
+  // from its first value, so adding a pension later shows as a step up on the month it was first logged.
+  M.pensionSeries = s => memo('pensS', () => {
+    const pots = M.pensions(s).filter(x => x.pot && x.vals.length);
+    if (!pots.length) return [];
+    const first = pots.map(x => x.vals[0].date.slice(0, 7)).sort()[0], out = [];
+    for (let m = first; m <= M.thisMonth(); m = M.addM(m, 1)){
+      const end = m + '-31', by = {};
+      pots.forEach(x => { const v = M.pensionValueAt(x.p, end); if (v) by[x.p.id] = v.value; });
+      out.push({ m, total: Object.values(by).reduce((t, v) => t + v, 0), by });
+    }
+    return out;
+  });
+
+  // ---------------- life admin: bills, subscriptions, insurance ----------------
+  // admin.items: { id, name, provider, category, cost, period, endDate, owner, autoRenew, ref, note, archived }.
+  // endDate = when the contract, policy or deal ends or renews. Costs are the amount per period as billed.
+  M.ADMIN_CATS = [
+    { id: 'utility', name: 'Utilities and household bills', short: 'Utilities', one: 'bill', eg: 'e.g. Electricity, broadband, water' },
+    { id: 'subscription', name: 'Subscriptions', short: 'Subscriptions', one: 'subscription', eg: 'e.g. Netflix, Spotify, gym' },
+    { id: 'insurance', name: 'Insurance', short: 'Insurance', one: 'policy', eg: 'e.g. Home, car, life, pet' },
+    { id: 'other', name: 'Other contracts', short: 'Other', one: 'contract', eg: 'e.g. Phone contract, breakdown cover' },
+  ];
+  M.PERIODS = [{ id: 'monthly', name: 'a month', per: 12 }, { id: 'quarterly', name: 'a quarter', per: 4 }, { id: 'annual', name: 'a year', per: 1 }];
+  M.RENEW_SOON_DAYS = 30;
+  M.itemAnnual = it => (Number(it.cost) || 0) * ((M.PERIODS.find(p => p.id === it.period) || M.PERIODS[0]).per);
+  M.itemMonthly = it => M.itemAnnual(it) / 12;
+  // Days until the end/renewal date (negative = passed) and a status: passed, soon (within 30 days), later, none.
+  M.renewal = it => {
+    if (!it.endDate || !/^\d{4}-\d{2}-\d{2}$/.test(it.endDate)) return { days: null, status: 'none' };
+    const days = -M.daysSince(it.endDate);
+    return { days, status: days < 0 ? 'passed' : days <= M.RENEW_SOON_DAYS ? 'soon' : 'later' };
+  };
+  M.adminItems = s => ((s.admin && s.admin.items) || []).filter(it => !it.archived);
+  M.adminSummary = s => memo('adminS', () => {
+    const items = M.adminItems(s);
+    const cats = M.ADMIN_CATS.map(c => { const list = items.filter(it => (M.ADMIN_CATS.some(x => x.id === it.category) ? it.category : 'other') === c.id); return { ...c, items: list, monthly: list.reduce((t, it) => t + M.itemMonthly(it), 0), annual: list.reduce((t, it) => t + M.itemAnnual(it), 0) }; });
+    const dated = items.map(it => ({ it, r: M.renewal(it) })).filter(x => x.r.days != null).sort((a, b) => a.r.days - b.r.days);
+    return { cats, count: items.length, monthly: cats.reduce((t, c) => t + c.monthly, 0), annual: cats.reduce((t, c) => t + c.annual, 0),
+      upcoming: dated.filter(x => x.r.days >= 0), attention: dated.filter(x => x.r.status === 'passed' || x.r.status === 'soon') };
+  });
+
   // ---------------- projection & scenarios ----------------
   M.scenarioTotals = sc => sc.items.reduce((t, it) => { const a = Number(it.amount) || 0; if (it.type === 'monthly') t.monthly += a; else t.oneoff += a; return t; }, { oneoff: 0, monthly: 0 });
   // Looks back `back` months (actual) and forward `fwd` months along three paths.
